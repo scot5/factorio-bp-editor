@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useState } from 'react'
 import {
   materialsText,
@@ -7,7 +6,8 @@ import {
   type MaterialRow
 } from '@core/analysis'
 import { displayName, type PrototypeDb } from '@core/prototypes'
-import { Icon } from '../components/Icon'
+import { CountTable, type Row } from './CountTable'
+import { PowerSection } from './PowerSection'
 import { useAnalysis } from '../store/analysis'
 import { useAssets } from '../store/assets'
 
@@ -23,7 +23,7 @@ const SOURCE_LABELS: Record<MaterialRow['sources'][number], string> = {
   tile: 'tile'
 }
 
-/** Analysis reports of the active blueprint (docs/spec/06-analysis.md). M4 PR 1: inventory. */
+/** Analysis reports of the active blueprint (docs/spec/06-analysis.md). Inventory and power. */
 export function AnalysisPanel({ current, onSelect }: Readonly<Props>): React.JSX.Element {
   const status = useAnalysis((s) => s.status)
   const result = useAnalysis((s) => s.result)
@@ -40,6 +40,7 @@ export function AnalysisPanel({ current, onSelect }: Readonly<Props>): React.JSX
   return (
     <div data-testid="analysis-panel">
       <Inventory report={result.inventory} hasGameData={result.hasGameData} onSelect={onSelect} />
+      <PowerSection report={result.power} onSelect={onSelect} />
     </div>
   )
 }
@@ -161,54 +162,4 @@ function entityRows(rows: EntityCountRow[], db: PrototypeDb | null): Row[] {
     count: r.count,
     indexes: r.indexes
   }))
-}
-
-interface Row {
-  key: string
-  kind: string
-  name: string
-  label: string
-  quality?: string
-  count: number
-  indexes: number[]
-  note?: string
-  muted?: boolean
-}
-
-function CountTable({
-  rows,
-  testId,
-  onSelect
-}: Readonly<{
-  rows: Row[]
-  testId: string
-  onSelect(indexes: number[]): void
-}>): React.JSX.Element {
-  if (rows.length === 0) return <p className="m-0 px-3 pb-2 text-ink-muted">None.</p>
-  return (
-    <ul className="m-0 list-none px-1 pb-2" data-testid={testId}>
-      {rows.map((r) => (
-        <li key={r.key}>
-          <button
-            className={clsx(
-              'flex w-full items-center gap-2 rounded px-2 py-0.5 text-left',
-              r.indexes.length > 0 ? 'hover:bg-white/5' : 'cursor-default',
-              r.muted && 'text-ink-muted'
-            )}
-            disabled={r.indexes.length === 0}
-            title={[r.name, r.quality, r.note].filter(Boolean).join(' · ')}
-            onClick={() => onSelect(r.indexes)}
-            data-testid={`${testId}-row`}
-          >
-            <Icon kind={r.kind} name={r.name} quality={r.quality} size={20} fallback="none" />
-            <span className="min-w-0 flex-1 truncate">
-              {r.label}
-              {r.quality && <span className="ml-1 text-accent">({r.quality})</span>}
-            </span>
-            <span className="font-mono tabular-nums">{r.count.toLocaleString('en')}</span>
-          </button>
-        </li>
-      ))}
-    </ul>
-  )
 }

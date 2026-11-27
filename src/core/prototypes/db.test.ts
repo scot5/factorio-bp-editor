@@ -116,6 +116,33 @@ describe('buildPrototypeDb', () => {
     mods: [{ name: 'base', version: '2.1.25' }]
   })
 
+  it('reads planets with their solar power', () => {
+    const withPlanets = buildPrototypeDb(
+      {
+        'surface-property': { 'solar-power': { name: 'solar-power', default_value: 100 } },
+        planet: {
+          nauvis: {
+            name: 'nauvis',
+            surface_properties: { 'day-night-cycle': 25200 },
+            solar_power_in_space: 300
+          },
+          aquilo: {
+            name: 'aquilo',
+            surface_properties: { 'solar-power': 1 },
+            solar_power_in_space: 60
+          },
+          edge: { name: 'edge' }
+        }
+      } as never,
+      { gameVersion: '2.1.25', mods: [] }
+    )
+    expect(withPlanets.planets).toEqual({
+      nauvis: { solarPower: 100, solarPowerInSpace: 300 },
+      aquilo: { solarPower: 1, solarPowerInSpace: 60 },
+      edge: { solarPower: 100 }
+    })
+  })
+
   it('records metadata', () => {
     expect(db.formatVersion).toBe(DB_FORMAT_VERSION)
     expect(db.gameVersion).toBe('2.1.25')

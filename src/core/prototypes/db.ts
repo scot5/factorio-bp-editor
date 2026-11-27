@@ -9,12 +9,14 @@ import { entityWirePoints, type EntityWirePoints } from './wires'
 import { localise, type Locale, type NameCategory } from './locale'
 import {
   entityStats,
+  fluidHeat,
   itemCounts,
   itemStats,
   qualityMultipliers,
   type EntityStats,
   type ItemCount,
-  type ItemStats
+  type ItemStats,
+  type StatsContext
 } from './stats'
 
 /**
@@ -24,7 +26,7 @@ import {
  * Bump DB_FORMAT_VERSION whenever the shape or contents change, so cached
  * databases are rebuilt.
  */
-export const DB_FORMAT_VERSION = 7
+export const DB_FORMAT_VERSION = 8
 
 /** Types whose prototype `color` tints their runtime-tint masks. */
 const TINTED_TYPES: ReadonlySet<string> = new Set([
@@ -93,6 +95,14 @@ export interface QualityProto {
   multipliers?: Record<string, number>
 }
 
+/** Solar power of a planet (format 8+). */
+export interface PlanetProto {
+  /** Surface `solar-power` property in percent (default from the surface property, 100). */
+  solarPower: number
+  /** `solar_power_in_space` in percent, for platforms in its orbit. */
+  solarPowerInSpace?: number
+}
+
 /** Icon categories as written by `--dump-icon-sprites` (one folder each). */
 export type IconCategory =
   | 'item'
@@ -124,6 +134,8 @@ export interface PrototypeDb {
   tileGraphics: Record<string, TileGraphics>
   /** Items that place each tile, from the tile's `placeable_by` or an item's `place_as_tile` (format 7+). */
   tileItems: Record<string, ItemCount[]>
+  /** Planets with their solar power (format 8+). */
+  planets: Record<string, PlanetProto>
   /** English display names per category, when locale files were read (format 7+). */
   names: Partial<Record<NameCategory, Record<string, string>>>
   /** Names that have an icon file, per category (filled in by the main process). */
@@ -208,6 +220,7 @@ export function buildPrototypeDb(
   meta: { gameVersion: string; mods: { name: string; version: string }[]; locale?: Locale }
 ): PrototypeDb {
   const entities: Record<string, EntityProto> = {}
+  const context: StatsContext = { fluid: (name) => fluidHeat(raw['fluid']?.[name]) }
   for (const [type, prototypes] of Object.entries(raw)) {
     if (NOT_BLUEPRINTABLE_TYPES.has(type)) continue
     for (const proto of Object.values(prototypes)) {
@@ -222,7 +235,7 @@ export function buildPrototypeDb(
       const connections = entityConnections(proto)
       const wirePoints = entityWirePoints(type, proto)
       const tint = TINTED_TYPES.has(type) ? color(proto['color']) : undefined
-      const stats = entityStats(type, proto)
+      const stats = entityStats(type, proto, context)
       entities[name] = {
         type,
         ...size,
@@ -297,9 +310,26 @@ export function buildPrototypeDb(
       })
     ),
     tileItems: tileItems(raw, items),
+    planets: planets(raw),
     names: meta.locale ? displayNames(raw, entities, items, meta.locale) : {},
     icons: {}
   }
+}
+
+function planets(raw: Raw): Record<string, PlanetProto> {
+  const property = raw['surface-property']?.['solar-power']?.['default_value']
+  const fallback = typeof property === 'number' ? property : 100
+  const out: Record<string, PlanetProto> = {}
+  for (const [name, proto] of Object.entries(raw['planet'] ?? {})) {
+    const surface = proto['surface_properties'] as Record<string, unknown> | undefined
+    const solar = surface?.['solar-power']
+    const space = proto['solar_power_in_space']
+    out[name] = {
+      solarPower: typeof solar === 'number' ? solar : fallback,
+      ...(typeof space === 'number' ? { solarPowerInSpace: space } : {})
+    }
+  }
+  return out
 }
 
 function tileItems(raw: Raw, items: Record<string, ItemProto>): Record<string, ItemCount[]> {

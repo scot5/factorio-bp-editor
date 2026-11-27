@@ -31,6 +31,11 @@ export interface EnergySourceStats {
   fuelCategories?: string[]
   /** Burner / fluid effectivity (default 1). */
   effectivity?: number
+  /** Electric buffer in J (accumulators, roboports, electric turrets; format 8+). */
+  bufferCapacity?: number
+  /** Electric flow limits in W (format 8+). */
+  inputFlowLimit?: number
+  outputFlowLimit?: number
 }
 
 export interface EntityStats {
@@ -44,9 +49,31 @@ export interface EntityStats {
   allowedModuleCategories?: string[]
   /** `effect_receiver.base_effect` (foundry, EM plant, biochamber productivity). */
   baseEffect?: Partial<Record<ModuleEffect, number>>
-  /** `energy_usage` (or boiler `energy_consumption`) in W. */
+  /**
+   * Working power in W: `energy_usage`, else lamp / speaker `energy_usage_per_tick`
+   * (a power despite the name), boiler `energy_consumption`, fusion reactor
+   * `power_input`, combinator `active_energy_usage`, or asteroid collector
+   * `passive_energy_usage` (J per tick, × 60).
+   */
   energyUsage?: number
+  /**
+   * Extra power while busy, in W (format 8+): rocket silo `active_energy_usage`
+   * (launch sequence), agricultural tower `crane_energy_usage`, asteroid collector
+   * `arm_energy_usage` (J per tick, × 60).
+   */
+  activeEnergyUsage?: number
+  /** Crafting machines: quality scales `energy_usage` (format 8+). */
+  qualityAffectsEnergyUsage?: boolean
   energySource?: EnergySourceStats
+  /**
+   * Peak electric output in W (format 8+): solar `production`, generator
+   * `max_power_output` or its fluid's heat, burner generator `max_power_output`,
+   * fusion generator `output_flow_limit`, electric energy interface `energy_production`.
+   */
+  powerOutput?: number
+  /** Reactors: heat output in W (`consumption`) and `neighbour_bonus` (format 8+). */
+  heatOutput?: number
+  neighbourBonus?: number
   /** Inserters: energy per movement / rotation in J. */
   energyPerMovement?: number
   energyPerRotation?: number
@@ -72,6 +99,8 @@ export interface EntityStats {
   distributionEffectivityBonusPerQualityLevel?: number
   /** Beacon profile: effect multiplier by number of beacons (index 0 = one beacon). */
   profile?: number[]
+  /** Beacons: `same_type` counts only beacons of this prototype for `profile` (default `total`; format 8+). */
+  beaconCounter?: 'same_type'
   researchingSpeed?: number
 }
 
@@ -130,15 +159,110 @@ function energySource(value: unknown): EnergySourceStats | undefined {
   if (!value || typeof value !== 'object') return undefined
   const r = value as Record<string, unknown>
   if (typeof r['type'] !== 'string') return undefined
-  const drain = parseEnergy(r['drain'])
   const fuel = strings(r['fuel_categories'])
   const effectivity = num(r['effectivity'])
-  return {
+  return compact<EnergySourceStats>({
     type: r['type'],
-    ...(drain !== undefined ? { drain } : {}),
-    ...(fuel?.length ? { fuelCategories: fuel } : {}),
-    ...(effectivity !== undefined && effectivity !== 1 ? { effectivity } : {})
+    drain: parseEnergy(r['drain']),
+    fuelCategories: fuel?.length ? fuel : undefined,
+    effectivity: effectivity !== undefined && effectivity !== 1 ? effectivity : undefined,
+    bufferCapacity: parseEnergy(r['buffer_capacity']),
+    inputFlowLimit: parseEnergy(r['input_flow_limit']),
+    outputFlowLimit: parseEnergy(r['output_flow_limit'])
+  })
+}
+
+/** Fluid data a generator's output depends on. */
+export interface FluidHeat {
+  defaultTemperature: number
+  /** J per unit per °C. */
+  heatCapacity: number
+}
+
+export interface StatsContext {
+  fluid(name: string): FluidHeat | undefined
+}
+
+/** Fluid heat from a raw fluid prototype (`heat_capacity` default 1kJ, `default_temperature` required). */
+export function fluidHeat(proto: Record<string, unknown> | undefined): FluidHeat | undefined {
+  if (!proto) return undefined
+  const defaultTemperature = num(proto['default_temperature'])
+  if (defaultTemperature === undefined) return undefined
+  return { defaultTemperature, heatCapacity: parseEnergy(proto['heat_capacity']) ?? 1000 }
+}
+
+/** Per-tick energies (J) as power in W. */
+const perTick = (v: unknown): number | undefined => {
+  const e = parseEnergy(v)
+  return e === undefined ? undefined : e * 60
+}
+
+function energyUsage(type: string, proto: Record<string, unknown>): number | undefined {
+  if (type === 'asteroid-collector') return perTick(proto['passive_energy_usage'])
+  return parseEnergy(
+    proto['energy_usage'] ??
+      proto['energy_usage_per_tick'] ??
+      proto['energy_consumption'] ??
+      proto['power_input'] ??
+      proto['active_energy_usage']
+  )
+}
+
+function activeEnergyUsage(type: string, proto: Record<string, unknown>): number | undefined {
+  switch (type) {
+    case 'rocket-silo':
+      return parseEnergy(proto['active_energy_usage']) || undefined
+    case 'agricultural-tower':
+      return parseEnergy(proto['crane_energy_usage']) || undefined
+    case 'asteroid-collector':
+      return perTick(proto['arm_energy_usage']) || undefined
+    default:
+      return undefined
   }
+}
+
+/**
+ * Peak electric output. Generators without `max_power_output`:
+ * `fluid_usage_per_tick × 60 × (maximum_temperature − fluid default temperature)
+ * × heat_capacity × effectivity` (prototype-api.json, GeneratorPrototype::burns_fluid).
+ */
+function powerOutput(
+  type: string,
+  proto: Record<string, unknown>,
+  context: StatsContext | undefined
+): number | undefined {
+  switch (type) {
+    case 'solar-panel':
+      return parseEnergy(proto['production'])
+    case 'burner-generator':
+      return parseEnergy(proto['max_power_output'])
+    case 'electric-energy-interface':
+      return parseEnergy(proto['energy_production']) || undefined
+    case 'fusion-generator': {
+      const source = proto['energy_source'] as Record<string, unknown> | undefined
+      return parseEnergy(source?.['output_flow_limit'])
+    }
+    case 'generator':
+      return generatorOutput(proto, context)
+    default:
+      return undefined
+  }
+}
+
+function generatorOutput(
+  proto: Record<string, unknown>,
+  context: StatsContext | undefined
+): number | undefined {
+  const max = parseEnergy(proto['max_power_output'])
+  if (max !== undefined) return max
+  const box = proto['fluid_box'] as Record<string, unknown> | undefined
+  const filter = box?.['filter']
+  const fluid = typeof filter === 'string' ? context?.fluid(filter) : undefined
+  const usage = num(proto['fluid_usage_per_tick'])
+  const temperature = num(proto['maximum_temperature'])
+  if (!fluid || usage === undefined || temperature === undefined) return undefined
+  const effectivity = num(proto['effectivity']) ?? 1
+  return usage * 60 * (temperature - fluid.defaultTemperature) * fluid.heatCapacity * effectivity
 }
 
 function effects(value: unknown): Partial<Record<ModuleEffect, number>> | undefined {
@@ -184,7 +308,11 @@ const BELT_TYPES: ReadonlySet<string> = new Set([
 ])
 
 /** Extracts the analysis fields of one entity prototype. Undefined when it has none. */
-export function entityStats(type: string, proto: Record<string, unknown>): EntityStats | undefined {
+export function entityStats(
+  type: string,
+  proto: Record<string, unknown>,
+  context?: StatsContext
+): EntityStats | undefined {
   const receiver = proto['effect_receiver'] as Record<string, unknown> | undefined
   const s = compact<EntityStats>({
     placeableBy: itemCounts(proto['placeable_by']),
@@ -192,8 +320,13 @@ export function entityStats(type: string, proto: Record<string, unknown>): Entit
     craftingCategories: strings(proto['crafting_categories']),
     ...(MODULE_TYPES.has(type) ? moduleStats(type, proto) : {}),
     baseEffect: effects(receiver?.['base_effect']),
-    energyUsage: parseEnergy(proto['energy_usage'] ?? proto['energy_consumption']),
+    energyUsage: energyUsage(type, proto),
+    activeEnergyUsage: activeEnergyUsage(type, proto),
+    qualityAffectsEnergyUsage: proto['quality_affects_energy_usage'] === true || undefined,
     energySource: energySource(proto['energy_source']),
+    powerOutput: powerOutput(type, proto, context),
+    heatOutput: type === 'reactor' ? parseEnergy(proto['consumption']) : undefined,
+    neighbourBonus: type === 'reactor' ? (num(proto['neighbour_bonus']) ?? 1) : undefined,
     energyPerMovement: parseEnergy(proto['energy_per_movement']),
     energyPerRotation: parseEnergy(proto['energy_per_rotation']),
     maxDistance:
@@ -212,6 +345,7 @@ export function entityStats(type: string, proto: Record<string, unknown>): Entit
     profile: Array.isArray(proto['profile'])
       ? proto['profile'].filter((x): x is number => typeof x === 'number')
       : undefined,
+    beaconCounter: proto['beacon_counter'] === 'same_type' ? 'same_type' : undefined,
     researchingSpeed: num(proto['researching_speed'])
   })
   return Object.keys(s).length ? s : undefined
@@ -299,6 +433,7 @@ export type QualityMultiplier =
   | 'beacon_power_usage'
   | 'mining_drill_resource_drain'
   | 'range'
+  | 'accumulator_capacity'
 
 /** Explicit `*_multiplier` fields of a quality prototype, keyed without the suffix. */
 export function qualityMultipliers(proto: Record<string, unknown>): Record<string, number> {
@@ -314,7 +449,7 @@ export function qualityMultipliers(proto: Record<string, unknown>): Record<strin
  * A quality multiplier with the game's defaults (prototype-api.json, QualityPrototype):
  * `default` = 1 + 0.3 × level; speed, module and inserter multipliers fall back to
  * `default`; beacon power, drill drain and machine energy default to 1; range
- * = min(1 + 0.1 × level, 3).
+ * = min(1 + 0.1 × level, 3); accumulator capacity = 1 + level.
  */
 export function qualityMultiplier(
   quality: { level: number; multipliers?: Record<string, number> } | undefined,
@@ -331,6 +466,8 @@ export function qualityMultiplier(
       return 1
     case 'range':
       return Math.min(1 + 0.1 * quality.level, 3)
+    case 'accumulator_capacity':
+      return 1 + quality.level
     default:
       return base
   }

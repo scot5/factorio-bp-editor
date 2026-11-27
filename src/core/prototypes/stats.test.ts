@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   entityStats,
+  fluidHeat,
   itemCounts,
   itemStats,
   parseEnergy,
@@ -214,5 +215,129 @@ describe('quality multipliers', () => {
     expect(qualityMultiplier({ level: 2 }, 'beacon_power_usage')).toBe(1)
     expect(qualityMultiplier({ level: 5 }, 'range')).toBeCloseTo(1.5)
     expect(qualityMultiplier(undefined, 'default')).toBe(1)
+    expect(qualityMultiplier(legendary, 'accumulator_capacity')).toBe(6)
+  })
+})
+
+describe('power fields (format 8)', () => {
+  const steam = fluidHeat({ default_temperature: 15, max_temperature: 500, heat_capacity: '0.2kJ' })
+  const context = { fluid: (name: string) => (name === 'steam' ? steam : undefined) }
+  const electric = { type: 'electric', usage_priority: 'secondary-output' }
+
+  it('reads fluid heat, with the 1kJ heat capacity default', () => {
+    expect(steam).toEqual({ defaultTemperature: 15, heatCapacity: 200 })
+    expect(fluidHeat({ default_temperature: 25 })).toEqual({
+      defaultTemperature: 25,
+      heatCapacity: 1000
+    })
+    expect(fluidHeat({})).toBeUndefined()
+  })
+
+  it('derives steam engine and turbine output from the fluid heat', () => {
+    const engine = {
+      fluid_usage_per_tick: 0.5,
+      maximum_temperature: 165,
+      effectivity: 1,
+      fluid_box: { filter: 'steam' },
+      energy_source: electric
+    }
+    expect(entityStats('generator', engine, context)?.powerOutput).toBeCloseTo(900_000)
+    const turbine = { ...engine, fluid_usage_per_tick: 1, maximum_temperature: 500 }
+    expect(entityStats('generator', turbine, context)?.powerOutput).toBeCloseTo(5_820_000)
+    expect(
+      entityStats('generator', { ...engine, max_power_output: '1MW' }, context)?.powerOutput
+    ).toBe(1_000_000)
+    // No fluid data: no output rather than a guess.
+    expect(entityStats('generator', engine)?.powerOutput).toBeUndefined()
+  })
+
+  it('reads solar panels, burner and fusion generators and energy interfaces', () => {
+    expect(entityStats('solar-panel', { production: '60kW', energy_source: electric })).toEqual({
+      energySource: { type: 'electric' },
+      powerOutput: 60_000
+    })
+    expect(entityStats('burner-generator', { max_power_output: '1MW' })?.powerOutput).toBe(1e6)
+    expect(
+      entityStats('fusion-generator', {
+        max_fluid_usage: 0.0333,
+        energy_source: { ...electric, output_flow_limit: '50MW' }
+      })
+    ).toEqual({
+      energySource: { type: 'electric', outputFlowLimit: 50e6 },
+      powerOutput: 50e6
+    })
+    expect(
+      entityStats('electric-energy-interface', { energy_production: '500GW' })?.powerOutput
+    ).toBe(500e9)
+  })
+
+  it('reads reactors, with the neighbour bonus default of 1', () => {
+    expect(
+      entityStats('reactor', {
+        consumption: '40MW',
+        energy_source: { type: 'burner', fuel_categories: ['nuclear'] }
+      })
+    ).toEqual({
+      heatOutput: 40e6,
+      neighbourBonus: 1,
+      energySource: { type: 'burner', fuelCategories: ['nuclear'] }
+    })
+    expect(
+      entityStats('reactor', { consumption: '40MW', neighbour_bonus: 0 })?.neighbourBonus
+    ).toBe(0)
+  })
+
+  it('reads electric buffers and flow limits', () => {
+    expect(
+      entityStats('accumulator', {
+        energy_source: {
+          type: 'electric',
+          buffer_capacity: '5MJ',
+          usage_priority: 'tertiary',
+          input_flow_limit: '300kW',
+          output_flow_limit: '300kW'
+        }
+      })
+    ).toEqual({
+      energySource: {
+        type: 'electric',
+        bufferCapacity: 5e6,
+        inputFlowLimit: 300_000,
+        outputFlowLimit: 300_000
+      }
+    })
+  })
+
+  it('reads the other names of energy usage', () => {
+    const usage = (type: string, proto: Record<string, unknown>): unknown => {
+      const s = entityStats(type, proto)
+      return [s?.energyUsage, s?.activeEnergyUsage]
+    }
+    expect(usage('lamp', { energy_usage_per_tick: '5kW' })).toEqual([5000, undefined])
+    expect(usage('programmable-speaker', { energy_usage_per_tick: '2kW' })).toEqual([
+      2000,
+      undefined
+    ])
+    expect(usage('decider-combinator', { active_energy_usage: '1kW' })).toEqual([1000, undefined])
+    expect(usage('fusion-reactor', { power_input: '10MW' })).toEqual([10e6, undefined])
+    expect(usage('rocket-silo', { energy_usage: '250kW', active_energy_usage: '3990kW' })).toEqual([
+      250_000, 3_990_000
+    ])
+    expect(
+      usage('agricultural-tower', { energy_usage: '100kW', crane_energy_usage: '100kW' })
+    ).toEqual([100_000, 100_000])
+    // Asteroid collector energies are per tick.
+    expect(
+      usage('asteroid-collector', { passive_energy_usage: '200J', arm_energy_usage: '1kJ' })
+    ).toEqual([12_000, 60_000])
+  })
+
+  it('reads the beacon counter and quality_affects_energy_usage', () => {
+    expect(entityStats('beacon', { beacon_counter: 'same_type' })?.beaconCounter).toBe('same_type')
+    expect(entityStats('beacon', { beacon_counter: 'total' })?.beaconCounter).toBeUndefined()
+    expect(
+      entityStats('assembling-machine', { quality_affects_energy_usage: true })
+        ?.qualityAffectsEnergyUsage
+    ).toBe(true)
   })
 })

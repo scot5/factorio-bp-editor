@@ -1,5 +1,9 @@
 import { create } from 'zustand'
-import { DEFAULT_ANALYSIS_SETTINGS, type AnalysisResult } from '@core/analysis'
+import {
+  DEFAULT_ANALYSIS_SETTINGS,
+  type AnalysisResult,
+  type AnalysisSettings
+} from '@core/analysis'
 import type { Blueprint } from '@core/model'
 import type { PrototypeDb } from '@core/prototypes'
 import type { AnalysisRequest, AnalysisResponse } from '../analysis/protocol'
@@ -14,8 +18,11 @@ interface AnalysisState {
   /** The blueprint the result belongs to. */
   blueprint: Blueprint | null
   error: string | null
+  settings: AnalysisSettings
   /** Analyses `blueprint` with `db`; null clears the result. */
   run(blueprint: Blueprint | null, db: PrototypeDb | null): void
+  /** Changes the settings and analyses the current blueprint again. */
+  setSettings(settings: AnalysisSettings): void
 }
 
 let worker: Worker | null = null
@@ -48,20 +55,31 @@ export const useAnalysis = create<AnalysisState>()((set, get) => ({
   result: null,
   blueprint: null,
   error: null,
+  settings: DEFAULT_ANALYSIS_SETTINGS,
 
   run(blueprint, db) {
     if (blueprint === get().blueprint && db === workerDb) return
-    if (!blueprint) {
-      latest = 0
-      set({ status: 'idle', result: null, blueprint: null, error: null })
-      return
-    }
-    if (db !== workerDb) {
-      post({ kind: 'db', db })
-      workerDb = db
-    }
-    latest = nextId++
-    set({ status: 'running', blueprint, error: null })
-    post({ kind: 'analyse', id: latest, blueprint, settings: DEFAULT_ANALYSIS_SETTINGS })
+    analyseNow(blueprint, db)
+  },
+
+  setSettings(settings) {
+    set({ settings })
+    analyseNow(get().blueprint, workerDb ?? null)
   }
 }))
+
+function analyseNow(blueprint: Blueprint | null, db: PrototypeDb | null): void {
+  const set = useAnalysis.setState
+  if (!blueprint) {
+    latest = 0
+    set({ status: 'idle', result: null, blueprint: null, error: null })
+    return
+  }
+  if (db !== workerDb) {
+    post({ kind: 'db', db })
+    workerDb = db
+  }
+  latest = nextId++
+  set({ status: 'running', blueprint, error: null })
+  post({ kind: 'analyse', id: latest, blueprint, settings: useAnalysis.getState().settings })
+}
