@@ -1,5 +1,7 @@
 # Implementation plan: getting started
 
+> **Continuing the work?** Start with [remaining-work.md](remaining-work.md), the handoff plan with the current state, lessons learned, and the remaining work split into PRs. This file keeps the history and per-task detail for Phase 0 to M3.
+
 This plan turns the [spec](../spec/README.md) into ordered, checkable work for the first milestones. It covers **Phase 0 (scaffold)**, **M1 (codec)** and **M2 (viewer)** in detail, and the later milestones in outline. Revise the later phases when M2 is done.
 
 Each task lists what it produces and how to tell it is done. Tasks are sized to be one focused commit or PR each.
