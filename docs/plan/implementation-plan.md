@@ -39,20 +39,28 @@ Goal: `decode` / `encode` in `src/core/codec` with lossless round-trip over a re
 - Add a `tests/corpus/README.md` listing where each string came from. Commit only strings you made yourself or may share.
 - **Done when** there are at least 20 strings covering every root type.
 
+**Status: done.** [tests/corpus](../../tests/corpus/README.md) has 27 strings:
+
+- 22 from 2.1.25: blueprints, books, deconstruction and upgrade planners (standalone and in books), an empty book, space platforms, a train with a schedule, quality and mirror.
+- 3 from 1.1.
+- 2 modded from 2.0.77.
+
+Every root type is covered. The remaining gaps (Space Age planet buildings, power switch wiring) are listed in the corpus README.
+
 ### 1.2 Confirm format facts from the corpus
 
-Settle these from real strings before writing the schemas, and record the results in spec 02:
+**Status: mostly done.** The results are recorded in [spec 02](../spec/02-blueprint-format.md):
 
-- **Numeric values of the wire connector ids.** `runtime-api.json` lists the names (`circuit_red`, `combinator_output_green`, `pole_copper`, `power_switch_left_copper`, …), but its `order` field is display order, not the value. Read the values from exported strings that use each kind of connection.
-- Which 2.x fields actually appear (`mirror`, `quality`, `items` insert-plan shape, `wires`, `parameters`, `stock_connections`).
-- How large the `version` integers are, and that they exceed 2^53.
+- Wire connector ids 1–5 confirmed. The power switch ids are still open (no string uses them yet).
+- `version` fits in a JS number (2.1.25.10 = 562954250027018 < 2^53). **No big-number JSON handling is needed**, which simplifies task 1.3.
+- 2.x fields seen: `wires`, `parameters`, `rail_layer`, `snap-to-grid` / `absolute-snapping` / `position-relative-to-grid`, train stop fields, `override_stack_size`. Also seen in the second batch: `mirror`, entity `quality`, `recipe_quality`, insert-plan `items`, quality filters, platform `schedules`, and literal `null` values. Not seen yet: `stock_connections`.
 
 ### 1.3 Codec
 
 | Task | Done when |
 | --- | --- |
-| `decode(str)`: trim, check the version byte, base64, `fflate` inflate with a size cap, then precision-safe JSON parse | Each `DecodeError.reason` has a test |
-| Precision-safe JSON: a small parser or wrapper that keeps big integers as a `BigIntString` wrapper and keeps key order | `version` survives parse → stringify unchanged |
+| `decode(str)`: trim, check the version byte, base64, `fflate` inflate with a size cap, `JSON.parse`, then assert that `version` is a safe integer | Each `DecodeError.reason` has a test |
+| Version helpers: pack and unpack `major.minor.patch.build` with multiplication, not bitwise operators | 562954250027018 ⇄ 2.1.25.10 |
 | `encode(env)`: stringify, deflate (level 9), base64, prefix `0` | |
 | Round-trip test over the whole corpus (`decode → encode → decode`, deep-equal) | Passes for every corpus file |
 | Manual check: paste 3 re-encoded strings back into the game | Identical in game. Note the result in the PR. |
@@ -113,7 +121,7 @@ M3 steps 1–4 have no UI dependency and can start alongside M2.
 
 | Risk | Mitigation |
 | --- | --- |
-| 64-bit `version` precision lost by JSON parsing | Dedicated parser in task 1.3, with tests |
+| `version` precision | Not a risk for now: confirmed below 2^53 (task 1.2). The codec asserts `Number.isSafeInteger`. |
 | Undocumented blueprint JSON details | The corpus is the source of truth. Confirm facts from it (task 1.2) and record them in spec 02. |
 | Sprite rendering for every entity type takes long | The footprint-plus-icon fallback ships first. Add sprites type by type. |
 | Data dump fails (game running, mods broken) | Clear error with retry, and the "vanilla + expansions" option. The app works without a dump. |

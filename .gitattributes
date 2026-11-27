@@ -1,0 +1,2 @@
+# Blueprint corpus: exact bytes matter, and single-line base64 diffs are useless
+tests/corpus/**/*.txt -text -diff

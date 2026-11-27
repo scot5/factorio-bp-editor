@@ -62,7 +62,8 @@ These come from [01-architecture.md](docs/spec/01-architecture.md). Breaking the
 From [02-blueprint-format.md](docs/spec/02-blueprint-format.md):
 
 - **Lossless round-trip is required.** Keep unknown fields and key order. Never strip a field because the model does not know about it.
-- `version` is a 64-bit integer, larger than `Number.MAX_SAFE_INTEGER`. Never let plain `JSON.parse` / `JSON.stringify` touch it without the precision-safe path.
+- `version` packs four 16-bit parts. It fits in a JS number (2.1.25.10 = 562954250027018 < 2^53), so plain JSON is fine. Unpack it with multiplication or BigInt, never bitwise operators.
+- Wire connector ids are listed in [02 § Wires](docs/spec/02-blueprint-format.md#wires-20). Never derive them from `runtime-api.json`'s `order` field.
 - Positions are entity **centres** in tiles. Directions are **16-way** (0/4/8/12 for N/E/S/W). Wires are the top-level 2.x `wires` array.
 - Treat imported strings as untrusted. Enforce the inflate size limit, and render rich text with the parser, never as HTML.
 - Add every new real-world string you test with to `tests/corpus/`, with a round-trip test. Never commit strings you do not have the right to share.
