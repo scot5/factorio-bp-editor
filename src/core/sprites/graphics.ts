@@ -1,8 +1,11 @@
 import { normalizeSprite } from './normalize'
 import {
   DIRECTION_KEYS,
+  DRAW_LAYERS,
   type DirectionKey,
+  type DrawLayer,
   type GraphicsPart,
+  type RailLayer,
   type ShapePictures,
   type SpriteNode
 } from './types'
@@ -15,8 +18,8 @@ import {
  *
  * Neighbour-dependent pieces (belt shapes, pipe and wall pieces, underground
  * structures) are stored separately as named pictures (SHAPE_EXTRACTORS) and
- * picked per entity in shapes.ts. Types in neither table (rails, rolling
- * stock, …) keep the footprint + icon fallback. See
+ * picked per entity in shapes.ts. Types in neither table keep the footprint +
+ * icon fallback. See
  * docs/spec/03-game-assets.md § Sprite definitions for the coverage table.
  */
 
@@ -27,6 +30,12 @@ interface PartSpec {
   fixedRotation?: true
   ground?: true
   exact?: true
+  layer?: DrawLayer
+  offset?: [number, number]
+  along?: number
+  railLayer?: RailLayer
+  /** Set as `indexByDirection` on every sprite leaf of the part. */
+  indexByDirection?: number[]
 }
 
 type Extractor = (p: Raw) => PartSpec[]
@@ -87,6 +96,169 @@ const turret: Extractor = (p) => {
 }
 
 const combinator: Extractor = (p) => parts(p, 'sprites')
+
+/**
+ * The draw pass for a game render layer name: the rail layers keep their own
+ * pass, floor-level layers go to the ground pass, the train stop top above
+ * bodies, other elevated layers above the elevated rails, and the rest are
+ * bodies.
+ */
+export function drawLayerFor(renderLayer: unknown): DrawLayer {
+  if (typeof renderLayer !== 'string') return 'object'
+  if ((DRAW_LAYERS as readonly string[]).includes(renderLayer)) return renderLayer as DrawLayer
+  if (FLOOR_LAYERS.has(renderLayer)) return 'ground'
+  if (renderLayer.startsWith('higher-object') || renderLayer === 'train-stop-top')
+    return 'higher-object'
+  if (renderLayer.startsWith('elevated-')) return 'elevated-object'
+  return 'object'
+}
+
+const FLOOR_LAYERS = new Set([
+  'decals',
+  'ground-patch',
+  'ground-patch-higher',
+  'ground-patch-higher2',
+  'transport-belt-integration',
+  'remnants',
+  'floor',
+  'transport-belt',
+  'transport-belt-endings',
+  'floor-mechanics-under-corpse',
+  'corpse',
+  'floor-mechanics',
+  'item'
+])
+
+/** Elevated rails and signals are drawn this many tiles above the ground. */
+const ELEVATED_HEIGHT = 3
+
+/**
+ * RailPieceLayers properties in draw order, with their RailRenderLayers key.
+ * `segment_visualisation_middle`, water reflections, underwater structures
+ * and shadow masks are left out.
+ */
+const RAIL_PIECES = [
+  ['stone_path_background', 'stone_path_lower'],
+  ['stone_path', 'stone_path'],
+  ['ties', 'tie'],
+  ['backplates', 'screw'],
+  ['metals', 'metal']
+] as const
+
+/**
+ * RailPictureSet: one picture set per direction key, and the 16-way rail
+ * direction picks the key exactly (direction / 2). Straight and half-diagonal
+ * rails only fill north … southeast, which is all they use. Fences of
+ * elevated rails and ramps are drawn over the rail.
+ */
+const rail: Extractor = (p) => {
+  const pictures = p['pictures']
+  const renderLayers = at(pictures, 'render_layers')
+  const out: PartSpec[] = RAIL_PIECES.map(([piece, key]) => ({
+    value: railPerDirection(pictures, piece),
+    exact: true,
+    layer: drawLayerFor(at(renderLayers, key))
+  }))
+  const fences = p['fence_pictures']
+  for (const side of ['side_A', 'side_B'])
+    out.push({
+      value: at(fences, `${side}.fence`),
+      exact: true,
+      layer: 'elevated-rail-above-metal'
+    })
+  return out
+}
+
+function railPerDirection(pictures: unknown, piece: string): unknown {
+  if (!isRecord(pictures)) return undefined
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(pictures))
+    if (isRecord(value) && value[piece] !== undefined) out[key] = value[piece]
+  return Object.keys(out).length ? out : undefined
+}
+
+/**
+ * The most common entry per direction of a rail signal lookup table with the
+ * same number of entries per 16-way direction (the other entries are for
+ * other rail shapes beside the signal).
+ */
+export function modeByDirection(table: unknown): number[] | undefined {
+  if (!Array.isArray(table) || table.length < 16 || table.length % 16 !== 0) return undefined
+  const n = table.length / 16
+  const out: number[] = []
+  for (let d = 0; d < 16; d++) {
+    const counts = new Map<number, number>()
+    for (const v of table.slice(d * n, d * n + n))
+      if (typeof v === 'number') counts.set(v, (counts.get(v) ?? 0) + 1)
+    let best = 0
+    let bestCount = 0
+    for (const [v, c] of counts)
+      if (c > bestCount) {
+        best = v
+        bestCount = c
+      }
+    out.push(best)
+  }
+  return out
+}
+
+/**
+ * RailSignalPictureSet: the rail pieces, then the structure. The structure's
+ * animation frame is the colour (frame 0: green for rail signals, none/red
+ * for chain signals); the direction index comes from the alignment tables.
+ */
+function signalSet(set: unknown, railLayer: RailLayer): PartSpec[] {
+  if (!isRecord(set)) return []
+  const base: Pick<PartSpec, 'railLayer' | 'offset'> = {
+    railLayer,
+    ...(railLayer === 'elevated' ? { offset: [0, -ELEVATED_HEIGHT] as [number, number] } : {})
+  }
+  const piece = (value: unknown): PartSpec[] => {
+    if (!isRecord(value)) return []
+    const index = modeByDirection(value['align_to_frame_index'])
+    return [
+      {
+        ...base,
+        value: value['sprites'],
+        layer: drawLayerFor(value['render_layer'] ?? 'rail-chain-signal-metal'),
+        ...(index ? { indexByDirection: index } : {})
+      }
+    ]
+  }
+  const structureIndex = modeByDirection(set['structure_align_to_animation_index'])
+  return [
+    ...piece(set['rail_piece']),
+    ...piece(set['upper_rail_piece']),
+    {
+      ...base,
+      value: set['structure'],
+      layer: drawLayerFor(set['structure_render_layer']),
+      ...(structureIndex ? { indexByDirection: structureIndex } : {})
+    }
+  ]
+}
+
+const railSignal: Extractor = (p) => [
+  ...signalSet(p['ground_picture_set'], 'ground'),
+  ...signalSet(p['elevated_picture_set'], 'elevated')
+]
+
+/**
+ * Rolling stock: wheel bogies at +-joint_distance / 2 along the orientation,
+ * then the body (`pictures.rotated`; `sloped` is for ramps), then the
+ * artillery wagon's parked cannon.
+ */
+const rollingStock: Extractor = (p) => {
+  const joint = typeof p['joint_distance'] === 'number' ? p['joint_distance'] / 2 : 0
+  const wheels = at(p, 'wheels.rotated')
+  return [
+    { value: wheels, along: joint },
+    { value: wheels, along: -joint },
+    { value: at(p, 'pictures.rotated') },
+    { value: at(p, 'cannon_base_pictures.rotated') },
+    { value: at(p, 'cannon_barrel_pictures.rotated') }
+  ]
+}
 
 const EXTRACTORS: Record<string, Extractor> = {
   'assembling-machine': craftingMachine,
@@ -155,6 +327,30 @@ const EXTRACTORS: Record<string, Extractor> = {
   'heat-interface': (p) => parts(p, 'picture'),
   'power-switch': (p) => parts(p, 'power_on_animation'),
   'programmable-speaker': (p) => parts(p, 'sprite'),
+  'straight-rail': rail,
+  'half-diagonal-rail': rail,
+  'curved-rail-a': rail,
+  'curved-rail-b': rail,
+  'legacy-straight-rail': rail,
+  'legacy-curved-rail': rail,
+  'elevated-straight-rail': rail,
+  'elevated-half-diagonal-rail': rail,
+  'elevated-curved-rail-a': rail,
+  'elevated-curved-rail-b': rail,
+  'rail-ramp': rail,
+  'rail-support': (p) => parts(p, 'graphics_set.structure'),
+  'rail-signal': railSignal,
+  'rail-chain-signal': railSignal,
+  'train-stop': (p) => [
+    { value: p['rail_overlay_animations'], layer: 'ground' },
+    { value: p['animations'] },
+    { value: p['top_animations'], layer: 'higher-object' }
+  ],
+  locomotive: rollingStock,
+  'cargo-wagon': rollingStock,
+  'fluid-wagon': rollingStock,
+  'artillery-wagon': rollingStock,
+  'infinity-cargo-wagon': rollingStock,
   'simple-entity-with-owner': (p) => [{ value: p['picture'] ?? p['pictures'] ?? p['animations'] }]
 }
 
@@ -261,16 +457,39 @@ export function entityGraphics(type: string, proto: Raw): GraphicsPart[] | undef
   if (!extract) return undefined
   const result: GraphicsPart[] = []
   for (const spec of extract(proto)) {
-    const node: SpriteNode | null = normalizeSprite(spec.value)
+    let node: SpriteNode | null = normalizeSprite(spec.value)
     if (!node) continue
+    if (spec.indexByDirection) node = withIndexByDirection(node, spec.indexByDirection)
     result.push({
       node,
       ...(spec.fixedRotation ? { fixedRotation: true as const } : {}),
       ...(spec.ground ? { ground: true as const } : {}),
-      ...(spec.exact ? { exact: true as const } : {})
+      ...(spec.exact ? { exact: true as const } : {}),
+      ...(spec.layer && spec.layer !== 'object' ? { layer: spec.layer } : {}),
+      ...(spec.offset ? { offset: spec.offset } : {}),
+      ...(spec.along ? { along: spec.along } : {}),
+      ...(spec.railLayer ? { railLayer: spec.railLayer } : {})
     })
   }
   return result.length ? result : undefined
+}
+
+function withIndexByDirection(node: SpriteNode, table: number[]): SpriteNode {
+  switch (node.kind) {
+    case 'sprite':
+      return { ...node, indexByDirection: table }
+    case 'layers':
+      return { ...node, layers: node.layers.map((n) => withIndexByDirection(n, table)) }
+    case 'sheet':
+      return { ...node, sprite: withIndexByDirection(node.sprite, table) }
+    case 'directions':
+      return {
+        ...node,
+        directions: Object.fromEntries(
+          Object.entries(node.directions).map(([k, n]) => [k, withIndexByDirection(n, table)])
+        )
+      }
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

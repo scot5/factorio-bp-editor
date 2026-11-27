@@ -12,7 +12,7 @@ import {
 import { directionVector, SpatialIndex, type Box, type Position } from '@core/geometry'
 import type { BlueprintLayout, EntityLayout } from '@core/model'
 import type { EntityCategory } from '@core/prototypes'
-import type { SpriteLayer } from '@core/sprites'
+import { DRAW_LAYERS, type DrawLayer, type SpriteLayer } from '@core/sprites'
 import { visibleBox, type Camera } from './camera'
 import {
   BACKGROUND,
@@ -31,9 +31,11 @@ import { TextureCache } from './textures'
  * `setLayout`, `setCamera`, `setSelection`, `setHover`; the scene renders on
  * demand (no continuous ticker). See docs/spec/04-visualization.md.
  *
- * Layers (bottom to top): grid, tiles, footprints, sprite ground patches,
- * sprite shadows, sprite bodies (sorted by y), icons, direction arrows,
- * selection, hover, box-select rectangle, labels (screen space).
+ * Layers (bottom to top): grid, tiles, footprints, sprite passes (rail
+ * stone paths … rail metals, ground patches, shadows, bodies sorted by y,
+ * the train stop top, elevated rails, elevated objects: see POOL_ORDER),
+ * icons, direction arrows, selection, hover, box-select rectangle, labels
+ * (screen space).
  *
  * Level of detail: from SPRITE_MIN_SCALE px/tile up, entities with game
  * graphics are drawn as sprites and the rest keep footprints and icons
@@ -71,6 +73,18 @@ interface SpritePool {
 
 const newPool = (): SpritePool => ({ container: new Container(), sprites: [], used: 0 })
 
+/** Sprite passes, bottom to top: the draw layers with the shadow pass under the bodies. */
+type PoolName = DrawLayer | 'shadow'
+const POOL_ORDER: readonly PoolName[] = DRAW_LAYERS.flatMap((l): PoolName[] =>
+  l === 'object' ? ['shadow', l] : [l]
+)
+
+/** The pass a layer is drawn in. Shadows always go to the shadow pass. */
+function poolOf(layer: SpriteLayer): PoolName {
+  if (layer.layer) return layer.shadow ? 'shadow' : layer.layer
+  return layer.ground ? 'ground' : layer.shadow ? 'shadow' : 'object'
+}
+
 export class Scene {
   readonly app = new Application()
   private readonly world = new Container()
@@ -85,9 +99,7 @@ export class Scene {
   private spriteSource: SpriteSource | null = null
   private readonly spriteLayers = new Map<EntityLayout, readonly SpriteLayer[] | null>()
   private readonly spriteTextures = new TextureCache(() => this.invalidate())
-  private readonly groundSprites = newPool()
-  private readonly shadowSprites = newPool()
-  private readonly bodySprites = newPool()
+  private readonly pools = new Map<PoolName, SpritePool>(POOL_ORDER.map((n) => [n, newPool()]))
   /** Per-frame footprints and arrows of visible entities not drawn as sprites. */
   private readonly detail = new Graphics()
   private readonly detailArrows = new Graphics()
@@ -132,9 +144,7 @@ export class Scene {
       this.tiles,
       this.entities,
       this.detail,
-      this.groundSprites.container,
-      this.shadowSprites.container,
-      this.bodySprites.container,
+      ...[...this.pools.values()].map((p) => p.container),
       this.icons,
       this.arrows,
       this.detailArrows,
@@ -142,7 +152,7 @@ export class Scene {
       this.hoverLayer,
       this.boxSelect
     )
-    this.shadowSprites.container.filters = [new AlphaFilter({ alpha: SHADOW_ALPHA })]
+    this.pools.get('shadow')!.container.filters = [new AlphaFilter({ alpha: SHADOW_ALPHA })]
     host.appendChild(this.app.canvas)
     this.app.renderer.on('resize', () => this.invalidate())
     this.ready = true
@@ -152,7 +162,7 @@ export class Scene {
   destroy(): void {
     this.destroyed = true
     cancelAnimationFrame(this.frame)
-    for (const pool of [this.groundSprites, this.shadowSprites, this.bodySprites])
+    for (const pool of this.pools.values())
       for (const sprite of pool.sprites) sprite.texture = Texture.EMPTY
     this.spriteTextures.destroy()
     if (this.ready) this.app.destroy(true, { children: true })
@@ -259,8 +269,7 @@ export class Scene {
         // A bad sprite must never stop the rest of the frame from rendering.
         console.error('Sprite rendering failed', error)
         this.spriteSource = null
-        for (const pool of [this.groundSprites, this.shadowSprites, this.bodySprites])
-          this.finishPool(pool, 0)
+        for (const pool of this.pools.values()) this.finishPool(pool, 0)
       }
       this.drawDetail(spriteMode, withSprites)
       let withIcons = new Set<EntityLayout>()
@@ -343,8 +352,8 @@ export class Scene {
    */
   private drawSprites(): [boolean, Set<EntityLayout>] {
     const drawn = new Set<EntityLayout>()
-    const pools = [this.groundSprites, this.shadowSprites, this.bodySprites] as const
-    for (const pool of pools) pool.used = 0
+    const pools = this.pools
+    for (const pool of pools.values()) pool.used = 0
     const source = this.spriteSource
     let active = false
     if (source && this.layout && this.camera.scale >= SPRITE_MIN_SCALE) {
@@ -377,7 +386,7 @@ export class Scene {
           layers.forEach((layer, i) => {
             const texture = textures[i]!
             if (texture === 'failed' || texture === 'loading') return
-            const pool = layer.ground ? pools[0] : layer.shadow ? pools[1] : pools[2]
+            const pool = pools.get(poolOf(layer))!
             const sprite = pool.sprites[pool.used] ?? this.createSprite(pool)
             pool.used++
             sprite.texture = texture
@@ -393,7 +402,7 @@ export class Scene {
         }
       }
     }
-    for (const pool of pools) this.finishPool(pool, pool.used)
+    for (const pool of pools.values()) this.finishPool(pool, pool.used)
     return [active, drawn]
   }
 

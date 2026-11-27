@@ -51,6 +51,15 @@ export interface SpriteLeaf {
   repeatCount?: number
   /** RotatedSprite / RotatedAnimation: number of orientations in the sheet. */
   directionCount?: number
+  /** `back_equals_front`: the orientations cover half a turn, so opposite facings share a frame. */
+  backEqualsFront?: true
+  /**
+   * Sheet index per 16-way direction, from a lookup table in the prototype
+   * (rail signal `structure_align_to_animation_index` and the rail piece's
+   * `align_to_frame_index`): the direction index of a rotated sheet, or the
+   * frame of an animation.
+   */
+  indexByDirection?: number[]
   variationCount?: number
   shadow?: true
   /** RGBA, 0–1. */
@@ -95,7 +104,48 @@ export interface GraphicsPart {
    * (the splitter's `structure_patch` is empty for north and south).
    */
   exact?: true
+  /** Where the part is drawn, when not the usual ground / shadow / body passes. */
+  layer?: DrawLayer
+  /** Added to every layer's shift, in tiles (elevated rail signals sit at rail height). */
+  offset?: [number, number]
+  /**
+   * Rolling stock: the part sits this many tiles along the entity's
+   * orientation (front positive), like the wheel bogies at ±joint_distance/2.
+   */
+  along?: number
+  /** Rail signals: only drawn for a signal on this rail layer (blueprint `rail_layer`). */
+  railLayer?: RailLayer
 }
+
+export type RailLayer = 'ground' | 'elevated'
+
+/**
+ * Draw passes beyond the default three (ground patches, shadows, bodies sorted
+ * by y), named after the game's render layers. Bottom to top:
+ * rail-stone-path-lower, rail-stone-path, rail-tie, rail-chain-signal-metal,
+ * rail-screw, rail-metal, (ground), (shadows), (bodies), higher-object,
+ * elevated-rail-stone-path-lower … elevated-rail-above-metal, elevated-object.
+ * `ground` and `object` name the default passes.
+ */
+export const DRAW_LAYERS = [
+  'rail-stone-path-lower',
+  'rail-stone-path',
+  'rail-tie',
+  'rail-chain-signal-metal',
+  'rail-screw',
+  'rail-metal',
+  'ground',
+  'object',
+  'higher-object',
+  'elevated-rail-stone-path-lower',
+  'elevated-rail-stone-path',
+  'elevated-rail-tie',
+  'elevated-rail-screw',
+  'elevated-rail-metal',
+  'elevated-rail-above-metal',
+  'elevated-object'
+] as const
+export type DrawLayer = (typeof DRAW_LAYERS)[number]
 
 /**
  * Named pictures of a neighbour-dependent entity, chosen per entity from its
@@ -118,4 +168,6 @@ export interface SpriteLayer {
   additive?: boolean
   shadow: boolean
   ground: boolean
+  /** Draw pass other than ground / shadow / body (shadows still go to the shadow pass). */
+  layer?: DrawLayer
 }
