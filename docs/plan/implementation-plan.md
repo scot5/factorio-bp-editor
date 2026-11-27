@@ -16,11 +16,13 @@ Phase 0  Scaffold ──► M1 Codec ──► M2 Viewer ──► M3 Assets ─
 
 Goal: an empty but correctly structured app that builds, lints, tests and opens a window.
 
+**Status: done** (branch `phase-0-scaffold`). Typecheck, lint, unit and e2e tests pass locally. 0.6 is waiting for the first CI run on GitHub.
+
 | # | Task | Done when |
 | --- | --- | --- |
-| 0.1 | Initialise with `electron-vite` (React + TS template) using **pnpm** (`pnpm create @quick-start/electron`). Node 24 and pnpm 12 are available locally. Pin pnpm with the `packageManager` field in `package.json`. pnpm blocks dependency install scripts by default, so allow-list `electron` and `esbuild` in the pnpm config. Otherwise the Electron binary is never downloaded. Add `.gitignore` (node_modules, out, dist, `*.log`, local test dumps). | `pnpm install` from a clean clone works without prompts, and `pnpm dev` opens a window showing "Hello" |
+| 0.1 | Initialise with `electron-vite` (React + TS template) using **pnpm** (`pnpm create @quick-start/electron`). Node 24 and pnpm 12 are available locally. Pin pnpm with the `packageManager` field in `package.json`. pnpm blocks dependency install scripts by default. The Electron binary is fetched by the project's own `postinstall` (`install-electron`), so the only flagged package was `electron-winstaller` (Squirrel only), which is denied in `pnpm-workspace.yaml`. Add `.gitignore` (node_modules, out, dist, `*.log`, local test dumps). | `pnpm install` from a clean clone works without prompts, and `pnpm dev` opens a window showing "Hello" |
 | 0.2 | Restructure into the layout from [01 § Source layout](../spec/01-architecture.md#source-layout): `src/core`, `src/main`, `src/preload`, `src/renderer`, `tests/`. Path aliases `@core/*`, `@renderer/*`. | Aliases resolve in all three build targets and in Vitest |
-| 0.3 | TypeScript strict, ESLint (typescript-eslint, react-hooks), Prettier. Add an ESLint `no-restricted-imports` rule that blocks `electron`, `node:*`, `fs`, `path`, `zlib` and DOM globals in `src/core`. | `pnpm lint` passes. Importing `fs` in core fails lint. |
+| 0.3 | TypeScript strict, ESLint (typescript-eslint, react-hooks), Prettier. Add an ESLint `no-restricted-imports` rule that blocks `electron`, `node:*` and Node built-ins in `src/core`. Block DOM and Node globals with a separate `tsconfig.core.json` (ES libs only, `types: []`). | `pnpm lint` passes. Importing `fs` in core fails lint. |
 | 0.4 | Vitest set up for `src/**/*.test.ts`. Playwright with `_electron` and one smoke test that launches the app. | `pnpm test` and `pnpm test:e2e` pass |
 | 0.5 | Security defaults: `contextIsolation`, `sandbox`, no `nodeIntegration`, CSP meta tag. Empty typed `BridgeApi` in preload with `src/core/ipc.ts` for the shared types. | Smoke test checks that `window.require` is undefined |
 | 0.6 | CI (GitHub Actions, Windows plus Ubuntu) with `pnpm/action-setup` and the pnpm store cached: `pnpm install --frozen-lockfile`, typecheck, lint, unit tests. E2E on Windows only. | Green CI on a PR |

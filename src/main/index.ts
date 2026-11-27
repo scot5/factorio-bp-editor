@@ -1,0 +1,72 @@
+import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { join } from 'path'
+import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { IpcChannel, type AppInfo } from '@core/ipc'
+import { secureWebPreferences } from './security'
+import icon from '../../resources/icon.png?asset'
+
+function createWindow(): void {
+  const mainWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 900,
+    minHeight: 600,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#1e1e1e',
+    ...(process.platform === 'linux' ? { icon } : {}),
+    webPreferences: secureWebPreferences(join(__dirname, '../preload/index.js'))
+  })
+
+  mainWindow.on('ready-to-show', () => {
+    mainWindow.show()
+  })
+
+  // Open external links in the user's browser, never in the app.
+  mainWindow.webContents.setWindowOpenHandler((details) => {
+    if (details.url.startsWith('https://')) void shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  // Block in-app navigation away from the renderer.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const devUrl = process.env['ELECTRON_RENDERER_URL']
+    if (!(is.dev && devUrl && url.startsWith(devUrl))) event.preventDefault()
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  } else {
+    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+}
+
+function registerIpcHandlers(): void {
+  ipcMain.handle(IpcChannel.AppGetInfo, (): AppInfo => ({
+    appVersion: app.getVersion(),
+    electronVersion: process.versions.electron,
+    chromeVersion: process.versions.chrome,
+    nodeVersion: process.versions.node,
+    platform: process.platform
+  }))
+}
+
+void app.whenReady().then(() => {
+  electronApp.setAppUserModelId('dev.factorio-bp-editor')
+
+  // F12 toggles DevTools in development; Ctrl+R is ignored in production.
+  app.on('browser-window-created', (_, window) => {
+    optimizer.watchWindowShortcuts(window)
+  })
+
+  registerIpcHandlers()
+  createWindow()
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit()
+})

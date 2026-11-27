@@ -24,21 +24,28 @@ Status: pre-development. Follow the milestone order in [00-overview.md](docs/spe
 
 ## Commands
 
-Planned. Update this section when `package.json` exists.
-
-**Use pnpm, not npm or yarn.** Commit only `pnpm-lock.yaml`. Never commit `package-lock.json` or `yarn.lock`. Add dependencies with `pnpm add` (`-D` for dev), and run one-off tools with `pnpm dlx`, not `npx`.
+**Use pnpm, not npm or yarn.** Commit only `pnpm-lock.yaml`. Never commit `package-lock.json` or `yarn.lock`. Add dependencies with `pnpm add` (`-D` for dev), and run one-off tools with `pnpm dlx`, not `npx`. pnpm only runs dependency install scripts that are approved in `pnpm-workspace.yaml` (`allowBuilds`). When a new dependency is flagged, decide with `pnpm approve-builds <pkg>` or `'!<pkg>'`, and say why in the commit.
 
 ```sh
-pnpm install
-pnpm dev               # Electron with hot reload
-pnpm test              # Vitest unit tests
-pnpm test:e2e          # Playwright Electron tests
-pnpm lint              # ESLint
-pnpm typecheck         # tsc --noEmit for all targets
-pnpm build             # electron-builder package
+pnpm install            # also downloads the Electron binary (postinstall)
+pnpm dev                # Electron with hot reload
+pnpm test               # Vitest unit tests (src/**/*.test.ts)
+pnpm test:e2e           # builds, then runs Playwright Electron tests (tests/e2e)
+pnpm lint               # ESLint (includes the src/core import restrictions)
+pnpm typecheck          # tsc for core (no DOM/Node types), node (main/preload/tests) and web (renderer)
+pnpm format             # Prettier (Markdown is excluded)
+pnpm build              # typecheck + electron-vite build
+pnpm build:win          # + electron-builder NSIS installer
 ```
 
-Before you call a task done, run `typecheck`, `lint` and `test`.
+Before you call a task done, run `typecheck`, `lint` and `test`. Also run `test:e2e` when you touch main, preload or the renderer.
+
+### Layout notes
+
+- `src/core`: pure TS, imported through `@core/*`. `tsconfig.core.json` type-checks it with ES libs only.
+- `src/main/security.ts`: the only place window `webPreferences` are built.
+- `src/core/ipc.ts`: IPC channel names and the `BridgeApi` type. To add an IPC call, add it to `ipc.ts`, then a handler in `src/main`, then the preload mapping.
+- `src/renderer`: React app (`@renderer/*`). Entry is `index.html` → `main.tsx`.
 
 ## Architecture rules
 
