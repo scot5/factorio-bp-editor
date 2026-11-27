@@ -9,6 +9,7 @@ import {
 import { walk, type BookPath } from '../model/book'
 import { WireConnectorId } from '../model/wires'
 import { renameFrom1_1 } from './renames'
+import { dropItemSignalTypes, migrateEntitySettings } from './settings'
 
 /**
  * Migrates a 1.x blueprint envelope to the 2.x format.
@@ -23,14 +24,13 @@ import { renameFrom1_1 } from './renames'
  * - former filter inserters get `use_filters: true`
  * - module inventories of assembling machines, chemical plants, rocket silos, labs, beacons;
  *   fuel inventory of locomotives
+ * - entity settings: control behaviour, request and item filters, signals (settings.ts)
  *
  * UNVERIFIED (marked with ⚠ below, and reported as notes): the other inventory
  * ids in ITEM_INVENTORY, and fuel/ammo stack splitting (needs stack sizes).
  *
- * Not migrated (kept as-is): `control_behavior`, request filters, and other
- * settings whose format changed in 2.0. They are preserved verbatim, so nothing
- * is lost. The game also drops entities that reference prototypes 2.0 no longer
- * has (e.g. the `rocket-control-unit` recipe); we keep them, and analysis flags
+ * The game also drops entities that reference prototypes 2.0 no longer has
+ * (e.g. the `rocket-control-unit` recipe); we keep them, and analysis flags
  * them as unknown.
  */
 
@@ -84,6 +84,7 @@ export function migrate1to2(
     ctx.path = node.path
     node.payload['version'] = targetVersion
     renameNames(node.payload, ctx)
+    dropItemSignalTypes(node.payload['icons'])
     if (node.kind === 'blueprint') migrateBlueprint(node.payload, ctx)
   })
 
@@ -152,10 +153,12 @@ function migrateBlueprint(blueprint: JsonObject, ctx: Context): void {
   for (const entity of entities) {
     if (!isJsonObject(entity)) continue
     migrateDirection(entity)
+    const wired = isJsonObject(entity['connections'])
     collectWires(entity, wires)
     migrateItems(entity, ctx)
     migrateFilterInserter(entity)
     migrateRail(entity, ctx)
+    migrateEntitySettings(entity, { wired, note: (message) => note(ctx, message) })
   }
 
   if (wires.size > 0) {
@@ -164,6 +167,7 @@ function migrateBlueprint(blueprint: JsonObject, ctx: Context): void {
   }
 
   migrateSchedules(blueprint)
+  dropItemSignalTypes(blueprint['schedules'])
 }
 
 function migrateDirection(entity: JsonObject): void {

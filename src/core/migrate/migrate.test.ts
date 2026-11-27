@@ -101,13 +101,12 @@ describe('migrate1to2', () => {
     const bp = (result.envelope as { blueprint: JsonObject }).blueprint
     const [ins, asm] = entitiesOf(bp)
     expect(ins!['name']).toBe('bulk-inserter')
-    expect(ins!['filters']).toEqual([{ index: 1, name: 'efficiency-module' }])
+    expect(ins!['filters']).toEqual([
+      { index: 1, name: 'efficiency-module', quality: 'normal', comparator: '=' }
+    ])
     expect(JSON.stringify(ins!['control_behavior'])).toContain('"storage-chest"')
     expect(asm!['recipe']).toBe('water-barrel')
-    expect((bp['icons'] as JsonObject[])[0]!['signal']).toEqual({
-      type: 'item',
-      name: 'bulk-inserter'
-    })
+    expect((bp['icons'] as JsonObject[])[0]!['signal']).toEqual({ name: 'bulk-inserter' })
     expect(bp['label']).toBe('stack-inserter') // free text is not renamed
     expect(result.renamed.get('stack-filter-inserter')).toEqual({ to: 'bulk-inserter', count: 1 })
   })

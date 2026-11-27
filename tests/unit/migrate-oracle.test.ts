@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { decode, type JsonObject } from '@core/codec'
-import { findAll } from '@core/model'
+import { findAll, walk } from '@core/model'
 import { migrate1to2 } from '@core/migrate'
 import { loadCorpus } from './corpus'
 
@@ -9,9 +9,10 @@ import { loadCorpus } from './corpus'
  * strings (tests/corpus/legacy-1.1/upgraded: imported into 2.1.25 and exported).
  *
  * Compared: entity names, positions, directions/orientation, wires, module and
- * fuel totals, use_filters. NOT compared (deliberately not migrated, see spec 02):
- * control_behavior, request filters, filter quality/comparator fields, and
- * defaults the game adds (recipe_quality, enable_logistics_while_moving, …).
+ * fuel totals, use_filters, entity settings (SETTINGS_FIELDS) and icons. NOT
+ * compared: defaults the game writes out that mean the same when absent
+ * (recipe_quality, locomotive colour, …, and GAME_DEFAULTS below), and
+ * request_from_buffers / auto_launch, which the game drops and we keep (spec 02).
  */
 
 /**
@@ -40,6 +41,48 @@ const POLE_REACH: Record<string, number> = {
 
 /** Entities the game strips item requests from because they have no module slots. */
 const NO_MODULE_SLOTS = new Set(['assembling-machine-1'])
+
+/** Entity settings that must match the game's upgrade exactly (up to key order). */
+const SETTINGS_FIELDS = [
+  'control_behavior',
+  'request_filters',
+  'filters',
+  'filter',
+  'inventory',
+  'parameters',
+  'alert_parameters',
+  'artillery_auto_targeting',
+  'enable_logistics_while_moving'
+]
+
+/**
+ * Removes what the game writes out but we do not add, because an absent field
+ * means the same: `import_from` (Space Age), speaker flags, the chest circuit
+ * condition flag and empty request sections. Speaker volume is compared as a
+ * float32 (the game stores it as one). Keys are sorted, so key order is ignored.
+ */
+function canonical(value: unknown): string | undefined {
+  const GAME_DEFAULTS: Record<string, unknown> = {
+    stop_playing_sounds: false,
+    volume_controlled_by_signal: false,
+    circuit_condition_enabled: false
+  }
+  const clean = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(clean)
+    if (v === null || typeof v !== 'object') return v
+    const out: Record<string, unknown> = {}
+    for (const key of Object.keys(v).sort()) {
+      const child = (v as Record<string, unknown>)[key]
+      if (key === 'import_from' || GAME_DEFAULTS[key] === child) continue
+      out[key] = key === 'playback_volume' ? Math.fround(child as number) : clean(child)
+    }
+    const json = JSON.stringify(out)
+    if (json === '{}' || json === '{"sections":[{"index":1}]}') return undefined
+    return out
+  }
+  const cleaned = clean(value)
+  return cleaned === undefined ? undefined : JSON.stringify(cleaned)
+}
 
 const corpus = loadCorpus()
 const pairs = corpus
@@ -125,6 +168,13 @@ describe('1.1 migration matches the game’s own upgrade', () => {
           continue
         }
         matched.add(oe)
+        for (const field of SETTINGS_FIELDS) {
+          if (canonical(ge[field]) !== canonical(oe[field])) {
+            problems.push(
+              `${entityKey(ge)} ${field}: ours=${JSON.stringify(oe[field])} game=${JSON.stringify(ge[field])}`
+            )
+          }
+        }
         for (const field of ['direction', 'orientation', 'use_filters', 'mirror']) {
           if (JSON.stringify(ge[field]) !== JSON.stringify(oe[field])) {
             problems.push(
@@ -175,6 +225,27 @@ describe('1.1 migration matches the game’s own upgrade', () => {
       }
 
       expect(problems).toEqual([])
+    })
+
+    it('icons match on every book and blueprint', () => {
+      const icons = (env: typeof game): unknown[] => {
+        const all: unknown[] = []
+        walk(env, (node) => {
+          all.push(node.payload['icons'])
+        })
+        return all
+      }
+      expect(icons(ours)).toEqual(icons(game))
+    })
+
+    it('train schedules match apart from locomotive numbers', () => {
+      const schedules = (env: typeof game): unknown[] =>
+        findAll(env, 'blueprint').map((n) =>
+          canonical(
+            ((n.payload['schedules'] as JsonObject[] | undefined) ?? []).map((s) => s['schedule'])
+          )
+        )
+      expect(schedules(ours)).toEqual(schedules(game))
     })
 
     it('upgrade planners match apart from the quality fields the game adds', () => {

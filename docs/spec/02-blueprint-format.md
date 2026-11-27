@@ -150,6 +150,22 @@ JSON parsing notes for round-trip:
 - `items` as `{ name: count }` → 2.0 insert plans.
 - Prototype renames, taken from the game's own `data/base/migrations` files and applied in `migrations.txt` order. For example `filter-inserter` → `fast-inserter`, `stack-filter-inserter` → `bulk-inserter`, and 1.1's `stack-inserter` → `bulk-inserter` (the "1.2.0 stack inserter rename" swap). Former filter inserters get `use_filters: true`.
 - Train schedules: the 1.1 list of records becomes `{ records: […] }`.
+- Entity settings (`src/core/migrate/settings.ts`):
+  - **Signals:** `type: "item"` is the 2.x default and is omitted. This applies to every signal id in entity settings, in schedules, and in book and blueprint `icons`.
+  - **Decider combinators:** `decider_conditions` becomes `{ conditions: [condition], outputs: [{ signal, copy_count_from_input }], else_outputs: [] }`. The game omits the 2.x defaults: comparator `"<"`, constant `0`, and `copy_count_from_input: true`. Arithmetic conditions keep their format; only the signal type changes.
+  - **Constant combinators:** `filters` (`{ signal, count, index }`) becomes `sections: { sections: [{ index: 1, filters: [{ index, type, name, quality, comparator, count }] }] }`, with the signal flattened into the filter.
+  - **Request filters** on requester, buffer and storage chests: the list becomes `{ sections: [{ index: 1, filters: […] }] }`.
+  - **Item filters** (inserters, loaders, cargo wagon `inventory.filters`, request and constant combinator filters) get `quality: "normal"` and `comparator: "="`, because 1.1 only had normal items. A splitter's `filter` item name becomes `{ name, quality, comparator }`.
+  - **`circuit_enabled`:**
+    - Inserters: `circuit_mode_of_operation` 0 (also when it is absent) becomes `circuit_enabled: true`, and 1 becomes `circuit_set_filters: true`. 3 (none) is dropped. The mode key is removed.
+    - `circuit_enable_disable` (belts, train stops, …) becomes `circuit_enabled: true` when true and is dropped when false.
+    - Lamps, pumps and power switches with a `circuit_condition` get `circuit_enabled: true`; in 1.1 the condition always applied.
+  - **Roboports:** `read_logistics: false` becomes `read_items_mode: 0`.
+  - **Programmable speakers:** `playback_globally` becomes `playback_mode: "local"` (false) or `"global"` (true).
+  - **Defaults that keep 1.1 behaviour:**
+    - Storage tanks connected to a circuit network get `temperature_signal: signal-T`. The game adds it only to wired tanks.
+    - Artillery turrets get `artillery_auto_targeting: true`.
+    - Locomotives and cargo wagons get `enable_logistics_while_moving: false`.
 
 Implementation: `src/core/migrate` (`migrate1to2` returns the migrated copy, a list of renames and notes for the UI).
 
@@ -158,17 +174,19 @@ Implementation: `src/core/migrate` (`migrate1to2` returns the migrated copy, a l
 - every wire, including power switches (`Cu0` / `Cu1` → 5 / 6);
 - module and fuel totals;
 - `use_filters`;
+- entity settings: `control_behavior`, request and item filters, speaker parameters and alert icons, and the defaults above (key order is ignored);
+- book and blueprint icons and train schedules;
 - upgrade planners.
 
 What the game does on import:
 - 1.1 `straight-rail` / `curved-rail` become the separate `legacy-straight-rail` / `legacy-curved-rail` prototypes (direction ×2). We do the same.
 - It **deletes entities whose settings reference prototypes 2.0 no longer has** (for example the removed `rocket-control-unit` recipe, or 0.14-era item names such as `uranium-rifle-magazine`), and shows an import error without details. We keep them (lossless) and analysis reports them (`unknown-prototype`, spec 06).
 - It **drops copper wires longer than the shorter reach of their two poles**. We keep them and analysis reports `wire-out-of-reach`.
-- It strips modules from machines without module slots, splits fuel into stacks of the item's stack size, and fills in defaults (`recipe_quality: "normal"`, `quality` / `comparator` on filters). These need prototype data and are left to analysis and export (M3/M4).
+- It strips modules from machines without module slots and splits fuel into stacks of the item's stack size. Both need prototype data and are left to analysis and export (M4/M5).
+- It writes out defaults that mean the same when absent: `recipe_quality: "normal"`, a white locomotive `color`, an empty request section (`{ sections: [{ index: 1 }] }`) on roboports and chests, `circuit_condition_enabled: false` on logistic chests, `stop_playing_sounds` / `volume_controlled_by_signal: false` on speakers, and `import_from: "nauvis"` on constant combinator item filters (Space Age). We don't add these.
+- It **drops** requester `request_from_buffers: true` and rocket silo `auto_launch: true`. We keep them, so nothing is lost; `request_from_buffers` is still a valid 2.x field (space platform hubs use it).
 
-**Still unverified:** inventory ids for entities with item requests that are not in the legacy corpus (mining drills, burner entities, turrets). These are reported as migration notes.
-
-**Not migrated yet:** `control_behavior`, request filters and other settings whose format changed in 2.0 (for example decider conditions → `conditions` / `outputs`, constant combinator and requester filters → `sections`, `circuit_enabled`). They are kept verbatim, so nothing is lost, but analysis may not understand them. See plan task 1.6.
+**Still unverified** (reported as migration notes): inventory ids for entities with item requests that are not in the legacy corpus (mining drills, burner entities, turrets); inserter modes 2 (read hand contents, dropped) and 4 (set stack size → `circuit_set_stack_size: true`); roboport `read_logistics: true` (→ `read_items_mode: 1`); offshore pump circuit conditions; `enable_logistics_while_moving` on fluid and artillery wagons. Inserters are recognised by name (`inserter` or `*-inserter`), because migration runs without prototype data.
 
 After migration, the blueprint is stamped with the current game version. The UI SHOULD show a "migrated from 1.1" notice.
 
