@@ -1,2 +1,4 @@
 export * from './sizes'
+export * from './db'
+export * from './blueprintable'
 export { ENTITY_SIZES_GAME_VERSION } from '../generated/entity-sizes'

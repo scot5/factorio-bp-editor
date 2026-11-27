@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { useState } from 'react'
 import type { JsonObject } from '@core/codec'
 import { bookSlots, rootNode, type BookPath, type EnvelopeNode } from '@core/model'
+import { Icon } from '../components/Icon'
 import { KindBadge } from '../components/KindBadge'
 import { RichText } from '../components/RichText'
 import { useDocuments, type OpenDocument } from '../store/documents'
@@ -61,6 +62,7 @@ function TreeNode(props: NodeProps): React.JSX.Element {
   const label = typeof node.payload['label'] === 'string' ? node.payload['label'] : ''
   const entities = Array.isArray(node.payload['entities']) ? node.payload['entities'].length : null
   const slots = isBook ? bookSlots(node.payload) : []
+  const icons = itemIcons(node.payload)
 
   return (
     <div role="treeitem" aria-expanded={isBook ? open : undefined} aria-selected={active}>
@@ -84,6 +86,13 @@ function TreeNode(props: NodeProps): React.JSX.Element {
           {open ? '▾' : '▸'}
         </span>
         <KindBadge kind={node.kind} />
+        {icons.length > 0 && (
+          <span className="flex shrink-0 gap-px">
+            {icons.map((icon) => (
+              <Icon key={icon.index} kind={icon.type} name={icon.name} size={14} fallback="none" />
+            ))}
+          </span>
+        )}
         {slotIndex !== undefined && (
           <span
             className="w-5 shrink-0 text-right font-mono text-[10px] text-ink-muted"
@@ -120,6 +129,32 @@ function TreeNode(props: NodeProps): React.JSX.Element {
         ))}
     </div>
   )
+}
+
+/** The item's own icons (up to 4 signals chosen in game), in slot order. */
+function itemIcons(
+  payload: JsonObject
+): { index: number; type: string | undefined; name: string }[] {
+  const raw = Array.isArray(payload['icons'])
+    ? payload['icons']
+    : Array.isArray((payload['settings'] as JsonObject | undefined)?.['icons'])
+      ? ((payload['settings'] as JsonObject)['icons'] as unknown[])
+      : []
+  return raw
+    .flatMap((icon) => {
+      const i = icon as { index?: unknown; signal?: { type?: unknown; name?: unknown } }
+      return typeof i.index === 'number' && typeof i.signal?.name === 'string'
+        ? [
+            {
+              index: i.index,
+              type: typeof i.signal.type === 'string' ? i.signal.type : undefined,
+              name: i.signal.name
+            }
+          ]
+        : []
+    })
+    .sort((a, b) => a.index - b.index)
+    .slice(0, 4)
 }
 
 function untitled(node: EnvelopeNode): string {

@@ -1,9 +1,10 @@
-import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test'
+import { expect, test, type ElectronApplication } from '@playwright/test'
+import { launchApp } from './launch'
 
 let app: ElectronApplication
 
 test.beforeAll(async () => {
-  app = await electron.launch({ args: ['.'] })
+  app = await launchApp()
 })
 
 test.afterAll(async () => {

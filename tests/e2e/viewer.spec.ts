@@ -1,12 +1,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import {
-  _electron as electron,
-  expect,
-  test,
-  type ElectronApplication,
-  type Page
-} from '@playwright/test'
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { launchApp } from './launch'
 import { decode } from '../../src/core/codec'
 
 /** M2 viewer end to end (plan task 2.10). */
@@ -17,7 +12,7 @@ let app: ElectronApplication
 let page: Page
 
 test.beforeAll(async () => {
-  app = await electron.launch({ args: ['.'] })
+  app = await launchApp()
   page = await app.firstWindow()
   await page.waitForSelector('[data-testid="blueprint-canvas"] canvas')
 })

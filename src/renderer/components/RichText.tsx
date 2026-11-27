@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
 import { parseRichText } from '@core/richtext'
+import { Icon } from './Icon'
 
 /**
  * Renders Factorio rich text as React text nodes (never as HTML).
- * Icons are shown as name chips until real icons arrive in M3.
+ * Icons come from the game data, or show as name chips without it.
  */
 export function RichText({
   text,
@@ -21,14 +22,13 @@ export function RichText({
             {node.text}
           </span>
         ) : (
-          <span
+          <Icon
             key={i}
-            className="icon-chip"
-            style={{ color: node.color }}
-            title={`${node.kind}: ${node.name}${node.quality ? ` (${node.quality})` : ''}`}
-          >
-            {node.name}
-          </span>
+            kind={node.kind === 'img' ? undefined : node.kind}
+            name={node.name}
+            quality={node.quality}
+            size={16}
+          />
         )
       )}
     </span>

@@ -1,5 +1,5 @@
 import 'pixi.js/unsafe-eval' // Pixi without eval, so the strict CSP stays in place
-import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js'
+import { Application, Container, Graphics, Sprite, Text, TextStyle, Texture } from 'pixi.js'
 import { directionVector, SpatialIndex, type Box, type Position } from '@core/geometry'
 import type { BlueprintLayout, EntityLayout } from '@core/model'
 import type { EntityCategory } from '@core/prototypes'
@@ -20,14 +20,19 @@ import {
  * `setLayout`, `setCamera`, `setSelection`, `setHover`; the scene renders on
  * demand (no continuous ticker). See docs/spec/04-visualization.md.
  *
- * Layers (bottom to top): grid, tiles, entities, direction arrows, selection,
- * hover, box-select rectangle, labels (screen space).
+ * Layers (bottom to top): grid, tiles, entities, icons, direction arrows,
+ * selection, hover, box-select rectangle, labels (screen space).
  */
 
 const INSET = 0.06 // gap between neighbouring footprints, in tiles
 const ARROW_MIN_SCALE = 16 // px/tile: below this, arrows are skipped (LOD)
 const LABEL_MIN_SCALE = 48
 const MAX_LABELS = 400
+const ICON_MIN_SCALE = 10 // px/tile
+const MAX_ICONS = 4000
+
+/** Icon URL for an entity, or null when it has none. */
+export type IconSource = (entity: EntityLayout) => string | null
 
 export class Scene {
   readonly app = new Application()
@@ -36,6 +41,10 @@ export class Scene {
   private readonly tiles = new Graphics()
   private readonly entities = new Graphics()
   private readonly arrows = new Graphics()
+  private readonly icons = new Container()
+  private readonly iconPool: Sprite[] = []
+  private readonly textures = new Map<string, Texture | 'loading' | 'failed'>()
+  private iconSource: IconSource | null = null
   private readonly selectionLayer = new Graphics()
   private readonly hoverLayer = new Graphics()
   private readonly boxSelect = new Graphics()
@@ -76,6 +85,7 @@ export class Scene {
     this.world.addChild(
       this.tiles,
       this.entities,
+      this.icons,
       this.arrows,
       this.selectionLayer,
       this.hoverLayer,
@@ -109,6 +119,12 @@ export class Scene {
     this.drawEntities()
     this.drawSelection()
     this.drawHover()
+    this.invalidate()
+  }
+
+  /** Where entity icons come from; null shows footprints only (no game data). */
+  setIconSource(source: IconSource | null): void {
+    this.iconSource = source
     this.invalidate()
   }
 
@@ -173,7 +189,16 @@ export class Scene {
       this.world.scale.set(scale)
       this.arrows.visible = scale >= ARROW_MIN_SCALE
       this.drawGrid()
-      this.drawLabels()
+      let withIcons = new Set<EntityLayout>()
+      try {
+        withIcons = this.drawIcons()
+      } catch (error) {
+        // A bad icon must never stop the rest of the frame from rendering.
+        console.error('Icon rendering failed', error)
+        this.iconSource = null
+        for (const sprite of this.iconPool) sprite.visible = false
+      }
+      this.drawLabels(withIcons)
       this.app.render()
     })
   }
@@ -245,22 +270,33 @@ export class Scene {
       body.fill({ color: CATEGORY_COLORS[category], alpha: category === 'unknown' ? 0.8 : 0.9 })
     }
 
+    // Small arrows at the leading edge of each footprint, so they stay visible
+    // on top of icons (which cover the centre). Light fill + dark outline reads
+    // on every category colour and on icons.
     for (const e of layout.entities) {
       if (!e.directional) continue
       const { x, y } = directionVector(e.direction)
-      const cx = (e.box.left + e.box.right) / 2
-      const cy = (e.box.top + e.box.bottom) / 2
-      const r = Math.min(e.box.right - e.box.left, e.box.bottom - e.box.top) * 0.3
-      // Triangle pointing along the direction.
+      const w = e.box.right - e.box.left
+      const h = e.box.bottom - e.box.top
+      const r = Math.min(w, h) * 0.16
+      // Distance from the centre to the edge along the direction, minus a margin.
+      const reach = Math.min(
+        Math.abs(x) > 1e-9 ? w / 2 / Math.abs(x) : Infinity,
+        Math.abs(y) > 1e-9 ? h / 2 / Math.abs(y) : Infinity
+      )
+      const tipDistance = reach - INSET - r * 0.25
+      const cx = (e.box.left + e.box.right) / 2 + x * (tipDistance - r)
+      const cy = (e.box.top + e.box.bottom) / 2 + y * (tipDistance - r)
       const px = -y
       const py = x
       arrows
         .moveTo(cx + x * r, cy + y * r)
-        .lineTo(cx - x * r * 0.6 + px * r * 0.7, cy - y * r * 0.6 + py * r * 0.7)
-        .lineTo(cx - x * r * 0.6 - px * r * 0.7, cy - y * r * 0.6 - py * r * 0.7)
+        .lineTo(cx - x * r * 0.6 + px * r * 0.8, cy - y * r * 0.6 + py * r * 0.8)
+        .lineTo(cx - x * r * 0.6 - px * r * 0.8, cy - y * r * 0.6 - py * r * 0.8)
         .closePath()
     }
-    arrows.fill({ color: 0x000000, alpha: 0.45 })
+    arrows.fill({ color: 0xf2f2f2, alpha: 0.95 })
+    arrows.stroke({ color: 0x000000, width: 1, pixelLine: true, alpha: 0.8 })
   }
 
   private drawSelection(): void {
@@ -292,13 +328,14 @@ export class Scene {
     })
   }
 
-  private drawLabels(): void {
+  private drawLabels(withIcons: ReadonlySet<EntityLayout>): void {
     const { scale } = this.camera
     let used = 0
     if (this.layout && scale >= LABEL_MIN_SCALE) {
       const visible = this.index.query(visibleBox(this.camera, this.width, this.height))
       if (visible.length <= MAX_LABELS) {
         for (const e of visible) {
+          if (withIcons.has(e)) continue // the icon says what it is
           const width = (e.box.right - e.box.left) * scale
           if (width < 40) continue // too small to hold text
           const label = this.labelPool[used] ?? this.createLabel()
@@ -314,6 +351,64 @@ export class Scene {
       }
     }
     for (let i = used; i < this.labelPool.length; i++) this.labelPool[i]!.visible = false
+  }
+
+  /** Draws icons for visible entities; returns the entities that got one. */
+  private drawIcons(): Set<EntityLayout> {
+    const drawn = new Set<EntityLayout>()
+    const source = this.iconSource
+    let used = 0
+    if (source && this.layout && this.camera.scale >= ICON_MIN_SCALE) {
+      const visible = this.index.query(visibleBox(this.camera, this.width, this.height))
+      if (visible.length <= MAX_ICONS) {
+        for (const e of visible) {
+          const url = source(e)
+          const texture = url ? this.texture(url) : null
+          if (!texture) continue
+          const sprite = this.iconPool[used] ?? this.createIcon()
+          const w = e.box.right - e.box.left
+          const h = e.box.bottom - e.box.top
+          const size = Math.min(Math.min(w, h) * 0.72, 3)
+          sprite.texture = texture
+          sprite.width = size
+          sprite.height = size
+          sprite.position.set(e.box.left + w / 2, e.box.top + h / 2)
+          sprite.visible = true
+          drawn.add(e)
+          used++
+        }
+      }
+    }
+    for (let i = used; i < this.iconPool.length; i++) this.iconPool[i]!.visible = false
+    return drawn
+  }
+
+  private createIcon(): Sprite {
+    const sprite = new Sprite()
+    sprite.anchor.set(0.5)
+    this.icons.addChild(sprite)
+    this.iconPool.push(sprite)
+    return sprite
+  }
+
+  /** Texture for an icon URL; starts loading on first use and returns null until ready. */
+  private texture(url: string): Texture | null {
+    const cached = this.textures.get(url)
+    if (cached instanceof Texture) return cached
+    if (cached) return null // loading or failed
+    this.textures.set(url, 'loading')
+    const image = new Image()
+    image.crossOrigin = 'anonymous' // required for WebGL upload (protocol sends CORS headers)
+    image.src = url
+    image
+      .decode()
+      .then(() => {
+        if (this.destroyed) return
+        this.textures.set(url, Texture.from(image))
+        this.invalidate()
+      })
+      .catch(() => this.textures.set(url, 'failed'))
+    return null
   }
 
   private createLabel(): Text {

@@ -1,9 +1,18 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { handleAssetProtocol, registerAssetScheme } from './assets/protocol'
+import { AssetService } from './assets/service'
 import { registerIpcHandlers } from './ipc'
 import { secureWebPreferences } from './security'
+import { SettingsStore } from './settings'
 import icon from '../../resources/icon.png?asset'
+
+// Tests (and power users) can keep settings and caches in another folder.
+if (process.env['FBE_USER_DATA']) app.setPath('userData', process.env['FBE_USER_DATA'])
+
+// Custom schemes must be registered before the app is ready.
+registerAssetScheme()
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -49,8 +58,12 @@ void app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  registerIpcHandlers()
+  const settings = new SettingsStore(join(app.getPath('userData'), 'settings.json'))
+  const assets = new AssetService(join(app.getPath('userData'), 'prototype-cache'), settings)
+  handleAssetProtocol(() => assets.roots())
+  registerIpcHandlers(assets)
   createWindow()
+  void assets.detect() // reads files only; the game is never started without a click
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

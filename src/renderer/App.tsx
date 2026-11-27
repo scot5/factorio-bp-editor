@@ -2,14 +2,17 @@ import clsx from 'clsx'
 import { useEffect, useMemo, useState } from 'react'
 import type { Position } from '@core/geometry'
 import { getNode, layoutBlueprint, type Blueprint } from '@core/model'
-import { ENTITY_SIZES_GAME_VERSION, fallbackPrototypeLookup } from '@core/prototypes'
 import { BlueprintCanvas, type CanvasHover } from './canvas/BlueprintCanvas'
+import type { IconSource } from './canvas/scene'
+import { GameDataStatus } from './components/GameDataStatus'
+import { Icon } from './components/Icon'
 import { PX_PER_TILE } from './canvas/camera'
 import { ExportDialog } from './components/ExportDialog'
 import { ImportDialog } from './components/ImportDialog'
 import { KindBadge } from './components/KindBadge'
 import { BookTree } from './panels/BookTree'
 import { Inspector } from './panels/Inspector'
+import { useAssets } from './store/assets'
 import { useActiveDocument, useDocuments } from './store/documents'
 
 const DIRECTIONS = [
@@ -48,11 +51,20 @@ export function App(): React.JSX.Element {
   const [fitRequest, setFitRequest] = useState(0)
   const [dragging, setDragging] = useState(false)
 
+  const lookup = useAssets((s) => s.lookup)
+  const icon = useAssets((s) => s.icon)
+  const hasGameData = useAssets((s) => s.db !== null)
+  useEffect(() => useAssets.getState().init(), [])
+  const iconSource = useMemo<IconSource | null>(
+    () => (hasGameData ? (e) => (e.known ? icon('entity', e.entity.name) : null) : null),
+    [hasGameData, icon]
+  )
+
   const node = useMemo(() => (doc ? getNode(doc.envelope, doc.activePath) : undefined), [doc])
   const payload = node?.kind === 'blueprint' ? node.payload : undefined
   const layout = useMemo(
-    () => (payload ? layoutBlueprint(payload as Blueprint, fallbackPrototypeLookup) : null),
-    [payload]
+    () => (payload ? layoutBlueprint(payload as Blueprint, lookup) : null),
+    [payload, lookup]
   )
 
   const doImport = (text: string, fileName?: string): void => {
@@ -187,6 +199,7 @@ export function App(): React.JSX.Element {
             selection={selection}
             viewKey={viewKey}
             fitRequest={fitRequest}
+            iconSource={iconSource}
             onSelect={select}
             onHover={setHover}
             onCursor={setCursor}
@@ -246,11 +259,7 @@ export function App(): React.JSX.Element {
         )}
         {doc?.migration && <span className="text-accent">migrated from 1.1</span>}
         <span className="ml-auto">{Math.round((scale / PX_PER_TILE) * 100)}%</span>
-        <span title="Entity sizes come from this game version (fallback table)">
-          {ENTITY_SIZES_GAME_VERSION === 'none'
-            ? 'no size data'
-            : `sizes: ${ENTITY_SIZES_GAME_VERSION}`}
-        </span>
+        <GameDataStatus />
       </footer>
 
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} />
@@ -290,7 +299,14 @@ function HoverTooltip({ hover }: { hover: CanvasHover }): React.JSX.Element {
       style={{ left: hover.screen.x + 14, top: hover.screen.y + 14 }}
       data-testid="hover-tooltip"
     >
-      <div className="font-medium text-ink">
+      <div className="flex items-center gap-1.5 font-medium text-ink">
+        <Icon
+          kind="entity"
+          name={e.entity.name}
+          quality={e.entity.quality}
+          size={20}
+          fallback="none"
+        />
         {e.entity.name}
         {e.entity.quality && e.entity.quality !== 'normal' && (
           <span className="ml-1 text-accent">({e.entity.quality})</span>
