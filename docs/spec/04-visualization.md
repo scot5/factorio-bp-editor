@@ -1,0 +1,74 @@
+# 04 — Visualisation
+
+## Layout
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│ Toolbar: Import · Export · Undo/Redo · Tools · Overlays · Zoom · Agent ⧉  │
+├────────────┬──────────────────────────────────────────────┬───────────────┤
+│ Book tree  │                                              │ Inspector     │
+│            │                 Canvas                       │ (selection)   │
+│ Palette    │                                              ├───────────────┤
+│ (edit mode)│                                              │ Analysis      │
+│            │                                     minimap  │               │
+├────────────┴──────────────────────────────────────────────┴───────────────┤
+│ Status: cursor tile · selection count · warnings · game/assets status     │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+The agent panel docks on the right as a tab next to Analysis, or opens as a separate window.
+
+## Canvas
+
+- World unit = 1 tile. Render at 64 px per tile × zoom, to match high-resolution sprites.
+- Zoom range from 1/32 (overview of huge blueprints) to 4×. Zoom to the cursor with the mouse wheel. Pan with middle-drag, space-drag or the arrow keys.
+- "Fit to blueprint" on load and with `F`.
+- Background: tile grid with chunk lines every 32 tiles. Show the blueprint's `snap-to-grid` box when it is set.
+- Draw tiles (concrete, landfill, foundations) beneath entities, using their tile sprites (P1) or flat colours (fallback).
+
+### Layer order
+
+1. Tiles
+2. Entity shadows
+3. Entity bodies, sorted by render layer from the prototype, then by y
+4. Elevated rails and higher entities
+5. Wires (copper, red, green)
+6. Overlays (see below)
+7. Selection, hover, ghost previews
+
+### Level of detail
+
+The renderer must stay smooth (≥ 50 fps pan/zoom) for blueprints with **20,000 entities** on mid-range hardware.
+
+- Below about 1/4 zoom: skip shadows and wires, and draw entity bodies as coloured footprints from a per-type palette.
+- Below about 1/16 zoom: a single pre-rendered bitmap of the whole blueprint, updated in the background after edits.
+- Cull entities outside the viewport using a spatial index (uniform grid of 32×32 chunks).
+
+## Overlays (toggle each)
+
+| Overlay | Shows |
+| --- | --- |
+| Recipe icons | Recipe icon on each crafting machine (like alt-mode) |
+| Alt-mode info | Inserter filters, chest filters, train stop names, module icons |
+| Belt flow | Arrows on belts. Optional item colouring from analysis |
+| Circuit networks | Red/green networks highlighted, with network ids |
+| Power | Pole supply areas, unpowered entities in red |
+| Logistics | Roboport construction and logistic areas |
+| Beacons | Beacon effect areas and how many beacons reach each machine |
+| Warnings | Markers from validation (06) |
+| Heatmap | Any per-entity numeric metric from analysis (for example utilisation) |
+
+## Interaction (view mode)
+
+- Hover shows a tooltip: entity name, quality, recipe, position, direction.
+- Click selects. The inspector shows every property, including raw JSON (read-only in view mode).
+- Shift-click or drag-box selects several entities. The inspector shows a summary.
+- Clicking a row in the analysis panel (for example "12× electric-mining-drill") highlights those entities on the canvas.
+
+## Rich text
+
+Labels, descriptions, train stop names and the like use Factorio rich text. Support `[item=…]`, `[entity=…]`, `[recipe=…]`, `[fluid=…]`, `[virtual-signal=…]`, `[img=…]`, `[color=…]…[/color]`, `[font=…]…[/font]`. Unknown tags show as plain text.
+
+## Theming
+
+Dark theme by default, styled like the game UI but without copying its graphics. Light theme optional.
