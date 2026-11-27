@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, screen, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { handleAssetProtocol, registerAssetScheme } from './assets/protocol'
@@ -27,8 +27,24 @@ function createWindow(): void {
     webPreferences: secureWebPreferences(join(__dirname, '../preload/index.js'))
   })
 
+  // Developers can keep test and dev windows on another display without taking
+  // focus: FBE_WINDOW_DISPLAY is a 0-based index into the connected displays.
+  const displayIndex = Number(process.env['FBE_WINDOW_DISPLAY'] ?? NaN)
+  const display = Number.isInteger(displayIndex) ? screen.getAllDisplays()[displayIndex] : undefined
+  if (display) {
+    const { x, y, width, height } = display.workArea
+    const bounds = mainWindow.getBounds()
+    mainWindow.setBounds({
+      x: x + Math.max(0, Math.round((width - bounds.width) / 2)),
+      y: y + Math.max(0, Math.round((height - bounds.height) / 2)),
+      width: Math.min(bounds.width, width),
+      height: Math.min(bounds.height, height)
+    })
+  }
+
   mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+    if (display) mainWindow.showInactive()
+    else mainWindow.show()
   })
 
   // Open external links in the user's browser, never in the app.

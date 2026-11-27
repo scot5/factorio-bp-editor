@@ -4,7 +4,7 @@ import type { Position } from '@core/geometry'
 import { getNode, layoutBlueprint, type Blueprint } from '@core/model'
 import { BlueprintCanvas, type CanvasHover } from './canvas/BlueprintCanvas'
 import type { IconSource } from './canvas/scene'
-import { spriteSourceFor } from './canvas/sprite-source'
+import { spriteResolverFor, spriteSourceFor } from './canvas/sprite-source'
 import { GameDataStatus } from './components/GameDataStatus'
 import { Icon } from './components/Icon'
 import { PX_PER_TILE } from './canvas/camera'
@@ -56,7 +56,7 @@ export function App(): React.JSX.Element {
   const icon = useAssets((s) => s.icon)
   const db = useAssets((s) => s.db)
   const hasGameData = db !== null
-  const spriteSource = useMemo(() => (db ? spriteSourceFor(db) : null), [db])
+  const spriteResolver = useMemo(() => (db ? spriteResolverFor(db) : null), [db])
   useEffect(() => useAssets.getState().init(), [])
   const iconSource = useMemo<IconSource | null>(
     () => (hasGameData ? (e) => (e.known ? icon('entity', e.entity.name) : null) : null),
@@ -68,6 +68,10 @@ export function App(): React.JSX.Element {
   const layout = useMemo(
     () => (payload ? layoutBlueprint(payload as Blueprint, lookup) : null),
     [payload, lookup]
+  )
+  const spriteSource = useMemo(
+    () => (spriteResolver ? spriteSourceFor(spriteResolver, layout) : null),
+    [spriteResolver, layout]
   )
 
   const doImport = (text: string, fileName?: string): void => {

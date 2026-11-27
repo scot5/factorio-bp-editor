@@ -6,7 +6,7 @@ Guidance for working in this repository. Read this first, then the spec section 
 
 An Electron + React (Vite) desktop app to analyse, visualise and edit Factorio blueprint strings, with an optional Claude agent connected over ACP. The spec in [docs/spec/](docs/spec/README.md) is the source of truth for behaviour and architecture.
 
-Status: Phase 0, M1, M2, M3 steps 1–6 and step 7a are done (read-only viewer with game data, icons and sprites for single-sprite entities). **Start with `docs/plan/remaining-work.md`** if it exists: a local handoff plan with the current state, environment facts, lessons learned, and the remaining work as PR-sized steps (history is in `docs/plan/implementation-plan.md`). Update both as work lands. **`docs/plan/` is local only and gitignored: never commit it.** Only specs (`docs/spec/`) are committed. Work **one PR per step**: push, open the PR, and wait for the user to merge before starting the next step.
+Status: Phase 0, M1, M2, M3 steps 1–6 and steps 7a–7b are done (read-only viewer with game data, icons, and sprites for single-sprite entities, belts, pipes, heat pipes and walls). **Start with `docs/plan/remaining-work.md`** if it exists: a local handoff plan with the current state, environment facts, lessons learned, and the remaining work as PR-sized steps (history is in `docs/plan/implementation-plan.md`). Update both as work lands. **`docs/plan/` is local only and gitignored: never commit it.** Only specs (`docs/spec/`) are committed. Work **one PR per step**: push, open the PR, and wait for the user to merge before starting the next step.
 
 ## Read the spec before you change code
 
@@ -49,7 +49,7 @@ Before you call a task done, run `typecheck`, `lint` and `test`. Also run `test:
 - `src/core/ipc.ts`: IPC channel names and the `BridgeApi` type. To add an IPC call, add it to `ipc.ts`, then a handler in `src/main`, then the preload mapping.
 - `src/renderer`: React app (`@renderer/*`). Entry is `index.html` → `main.tsx`.
 - `src/main/assets`: game install detection, the dump runner, the cache and the `factorio-asset://` protocol. Never start the game except from the user's "Load game data" action.
-- E2E tests launch the app with `tests/e2e/launch.ts`, which uses a fresh `FBE_USER_DATA` folder, so tests never touch the real settings or cache.
+- E2E tests launch the app with `tests/e2e/launch.ts`, which uses a fresh `FBE_USER_DATA` folder, so tests never touch the real settings or cache. Set `FBE_WINDOW_DISPLAY=1` (a 0-based display index) to open test and dev windows on another display without taking focus.
 
 ## Architecture rules
 

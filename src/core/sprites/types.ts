@@ -88,9 +88,21 @@ export interface GraphicsPart {
    * (electric pole wire angles, radar dish), so always draw index 0.
    */
   fixedRotation?: true
-  /** Drawn on the ground, beneath every shadow and body (integration patches). */
+  /** Drawn on the ground, beneath every shadow and body (integration patches, belts). */
   ground?: true
+  /**
+   * Per-direction objects: draw only the exact direction, with no fallback
+   * (the splitter's `structure_patch` is empty for north and south).
+   */
+  exact?: true
 }
+
+/**
+ * Named pictures of a neighbour-dependent entity, chosen per entity from its
+ * neighbours (see shapes.ts): pipe and heat-pipe pieces, wall pieces,
+ * underground belt structures, and `belt` (the TransportBeltAnimationSet sheet).
+ */
+export type ShapePictures = Record<string, SpriteNode>
 
 /** What the renderer draws: a sub-rectangle of one image, placed relative to the entity centre. */
 export interface SpriteLayer {
