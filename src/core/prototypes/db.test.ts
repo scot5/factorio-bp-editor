@@ -89,7 +89,19 @@ const raw = {
     normal: { name: 'normal', level: 0, color: { r: 0.7, g: 0.7, b: 0.7 } },
     rare: { name: 'rare', level: 2, color: [17, 115, 242] }
   },
-  tile: { concrete: { name: 'concrete' } }
+  tile: { concrete: { name: 'concrete' } },
+  'train-stop': {
+    'train-stop': {
+      name: 'train-stop',
+      collision_box: [
+        [-0.5, -0.5],
+        [0.5, 0.5]
+      ],
+      tile_width: 2,
+      tile_height: 2,
+      color: [0.95, 0, 0, 1]
+    }
+  }
 }
 
 describe('buildPrototypeDb', () => {
@@ -120,6 +132,11 @@ describe('buildPrototypeDb', () => {
     })
     expect(db.entities['splitter']).toMatchObject({ width: 2, height: 1 })
     expect(db.entities['assembling-machine-2-remnants']).toBeUndefined()
+  })
+
+  it('keeps the default mask colour of train stops and rolling stock', () => {
+    expect(db.entities['train-stop']!.color).toEqual([0.95, 0, 0, 1])
+    expect(db.entities['assembling-machine-2']!.color).toBeUndefined()
   })
 
   it('stores normalised graphics for covered types only', () => {

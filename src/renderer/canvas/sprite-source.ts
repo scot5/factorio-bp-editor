@@ -1,6 +1,8 @@
 import type { BlueprintLayout } from '@core/model'
 import type { PrototypeDb } from '@core/prototypes'
 import {
+  graphicsOptionsFor,
+  graphicsOptionsKey,
   pickShape,
   resolveGraphics,
   resolveShape,
@@ -45,13 +47,19 @@ export function spriteSourceFor(
       at ??= tileIndex(db, layout?.entities ?? [])
       shape = pickShape(db, e, at)
     }
-    const key = `${e.entity.name}\u0000${e.direction}\u0000${shape ? shapeKey(shape) : ''}`
+    const options = graphicsOptionsFor(proto, e)
+    const key = [
+      e.entity.name,
+      e.direction,
+      shape ? shapeKey(shape) : '',
+      graphicsOptionsKey(options)
+    ].join('\u0000')
     let layers = cache.get(key)
     if (layers === undefined) {
       layers = shape
         ? resolveShape(proto, e.direction, shape)
         : proto.graphics
-          ? resolveGraphics(proto.graphics, e.direction)
+          ? resolveGraphics(proto.graphics, e.direction, options)
           : null
       cache.set(key, layers)
     }

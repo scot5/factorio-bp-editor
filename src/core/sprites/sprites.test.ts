@@ -99,7 +99,7 @@ describe('single sprites and layers', () => {
       [0, 0]
     ])
     // Frame 10: base stays at frame 0, animation frame 10 → column 2, row 1.
-    expect(rects(resolveGraphics([{ node }], N, 10))).toEqual([
+    expect(rects(resolveGraphics([{ node }], N, { frame: 10 }))).toEqual([
       [0, 0],
       [296, 158]
     ])

@@ -28,20 +28,22 @@ The agent panel docks on the right as a tab next to Analysis, or opens as a sepa
 
 ### Layer order
 
-1. Tiles (then footprints of entities without sprites, and ground patches such as integration patches)
-2. Entity shadows
-3. Entity bodies, sorted by render layer from the prototype, then by y (so far by y only)
-4. Elevated rails and higher entities
-5. Wires (copper, red, green)
-6. Overlays (see below)
-7. Selection, hover, ghost previews
+1. Tiles, then footprints of entities without sprites
+2. Rail passes, each over all rails: stone path background, stone path, ties, signal rail pieces, backplates, metals (the game's `rail-stone-path-lower` … `rail-metal` render layers)
+3. Ground patches (integration patches, belts, train stop rail overlays, ground-level signal structures)
+4. Entity shadows (including the shadows of elevated rails)
+5. Entity bodies, sorted by render layer from the prototype, then by y (so far by y only), then train stop tops (`higher-object`)
+6. Elevated rails and elevated signals, in the same passes as ground rails plus a fence pass, then other elevated objects
+7. Wires (copper, red, green)
+8. Overlays (see below)
+9. Selection, hover, ghost previews
 
 ### Level of detail
 
 The renderer must stay smooth (≥ 50 fps pan/zoom) for blueprints with **20,000 entities** on mid-range hardware.
 
 - Below about 1/4 zoom: skip shadows and wires, and draw entity bodies as coloured footprints from a per-type palette.
-- From 1/4 zoom (16 px per tile) up, entities with game graphics are drawn as sprites, at most 6,000 visible entities (otherwise footprints). Entities without graphics, and those whose sheets are still loading, keep a footprint and icon. Inserters keep their direction arrow, because the hand is not drawn yet. Implemented in `src/renderer/canvas/scene.ts`, using pooled sprites for visible entities only.
+- From 1/4 zoom (16 px per tile) up, entities with game graphics are drawn as sprites, at most 6,000 visible entities (otherwise footprints). Entities without graphics, and those whose sheets are still loading, keep a footprint and icon. Inserters keep their direction arrow, because the hand is not drawn yet. Implemented in `src/renderer/canvas/scene.ts`, using pooled sprites for visible entities only: one pool per pass above, in that order (`DrawLayer` in `src/core/sprites/types.ts`).
 - Shadows are drawn as one group at 50 % opacity (an `AlphaFilter` on the shadow layer), so overlapping shadows do not get darker, as in the game.
 - Below about 1/16 zoom: a single pre-rendered bitmap of the whole blueprint, updated in the background after edits.
 - Cull entities outside the viewport using a spatial index (uniform grid of 32×32 chunks).

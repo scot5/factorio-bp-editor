@@ -1,6 +1,7 @@
 import { NOT_BLUEPRINTABLE_TYPES, tileSizeOf } from './blueprintable'
 import type { PrototypeLookup } from './sizes'
 import { entityGraphics, entityShapes } from '../sprites/graphics'
+import { color } from '../sprites/normalize'
 import type { GraphicsPart, ShapePictures } from '../sprites/types'
 import { entityConnections, type EntityConnections } from './connections'
 
@@ -11,7 +12,17 @@ import { entityConnections, type EntityConnections } from './connections'
  * Bump DB_FORMAT_VERSION whenever the shape or contents change, so cached
  * databases are rebuilt.
  */
-export const DB_FORMAT_VERSION = 3
+export const DB_FORMAT_VERSION = 4
+
+/** Types whose prototype `color` tints their runtime-tint masks. */
+const TINTED_TYPES: ReadonlySet<string> = new Set([
+  'train-stop',
+  'locomotive',
+  'cargo-wagon',
+  'fluid-wagon',
+  'artillery-wagon',
+  'infinity-cargo-wagon'
+])
 
 export type BoxTuple = [[number, number], [number, number]]
 
@@ -27,6 +38,11 @@ export interface EntityProto {
   shapes?: ShapePictures
   /** Fluid and heat connection points (format 3+). */
   connections?: EntityConnections
+  /**
+   * Default colour for `apply_runtime_tint` masks, RGBA 0–1: train stops and
+   * rolling stock (format 4+). A blueprint `color` overrides it.
+   */
+  color?: [number, number, number, number]
 }
 
 export interface ItemProto {
@@ -175,6 +191,7 @@ export function buildPrototypeDb(
       const graphics = entityGraphics(type, proto)
       const shapes = entityShapes(type, proto)
       const connections = entityConnections(proto)
+      const tint = TINTED_TYPES.has(type) ? color(proto['color']) : undefined
       entities[name] = {
         type,
         ...size,
@@ -182,7 +199,8 @@ export function buildPrototypeDb(
         ...(selectionBox ? { selectionBox } : {}),
         ...(graphics ? { graphics } : {}),
         ...(shapes ? { shapes } : {}),
-        ...(connections ? { connections } : {})
+        ...(connections ? { connections } : {}),
+        ...(tint ? { color: tint } : {})
       }
     }
   }

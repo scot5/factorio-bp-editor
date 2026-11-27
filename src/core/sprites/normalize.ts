@@ -18,6 +18,7 @@ import {
  *   { layers: [...] }
  *   { sheet: {...} } / { sheets: [...] }       Sprite4Way / SpriteNWaySheet
  *   { north, east, south, west, … }            per-direction objects
+ *   { north, northeast, … }                    RailPictureSet / Sprite16Way keys
  *   [ ... ]                                    variations (the first is used)
  */
 export function normalizeSprite(value: unknown): SpriteNode | null {
@@ -35,16 +36,28 @@ export function normalizeSprite(value: unknown): SpriteNode | null {
   if (Array.isArray(value['sheets'])) return layers(value['sheets'].map(sheet))
   if (isRecord(value['sheet'])) return sheet(value['sheet'])
 
-  if (DIRECTION_KEYS.some((k) => isRecord(value[k]))) {
+  if (DIRECTION_KEYS.some((k) => isRecord(value[k] ?? value[RAIL_KEYS[k]]))) {
     const directions: Partial<Record<DirectionKey, SpriteNode>> = {}
     for (const key of DIRECTION_KEYS) {
-      const node = normalizeSprite(value[key])
+      const node = normalizeSprite(value[key] ?? value[RAIL_KEYS[key]])
       if (node) directions[key] = node
     }
     return Object.keys(directions).length ? { kind: 'directions', directions } : null
   }
 
   return leaf(value)
+}
+
+/** RailPictureSet and Sprite16Way spell the diagonals without an underscore. */
+const RAIL_KEYS: Record<DirectionKey, string> = {
+  north: 'north',
+  north_east: 'northeast',
+  east: 'east',
+  south_east: 'southeast',
+  south: 'south',
+  south_west: 'southwest',
+  west: 'west',
+  north_west: 'northwest'
 }
 
 function layers(nodes: (SpriteNode | null)[]): SpriteNode | null {
@@ -123,6 +136,9 @@ function leaf(value: Record<string, unknown>): SpriteLeaf | null {
     ...optional('repeatCount', above1(value['repeat_count'])),
     ...optional('directionCount', above1(value['direction_count'])),
     ...optional('variationCount', above1(value['variation_count'])),
+    ...(value['back_equals_front'] === true && above1(value['direction_count'])
+      ? { backEqualsFront: true as const }
+      : {}),
     ...(value['draw_as_shadow'] === true ? { shadow: true as const } : {}),
     ...(tint && tint.some((c) => c !== 1) ? { tint } : {}),
     ...(value['apply_runtime_tint'] === true ? { runtimeTint: true as const } : {}),

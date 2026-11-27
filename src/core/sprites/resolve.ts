@@ -1,6 +1,7 @@
 import { dataUrl } from '../assets/asset-url'
 import {
   DIRECTION_KEYS,
+  type RailLayer,
   type DirectionKey,
   type GraphicsPart,
   type SpriteLayer,
@@ -20,21 +21,52 @@ import {
  * `filenames` continue the index across files (`lines_per_file` rows each);
  * `stripes` continue it across stripes (width × height frames each).
  */
+export interface GraphicsOptions {
+  /** Animation frame, default 0. */
+  frame?: number
+  /**
+   * Rolling stock: the real `orientation` (0–1, clockwise from north). Rotated
+   * sheets take their frame from it instead of the 16-way direction, and parts
+   * with `along` are placed along it.
+   */
+  orientation?: number
+  /** Rail signals: which rail layer the signal is on (default ground). */
+  railLayer?: RailLayer
+  /** Colour for `apply_runtime_tint` masks (train stop, locomotive `color`); default PLAYER_COLOR. */
+  runtimeTint?: [number, number, number, number]
+}
+
 export function resolveGraphics(
   parts: readonly GraphicsPart[],
   direction: number,
-  frame = 0
+  options: GraphicsOptions = {}
 ): SpriteLayer[] {
   const out: SpriteLayer[] = []
+  const railLayer = options.railLayer ?? 'ground'
   for (const part of parts) {
+    if (part.railLayer && part.railLayer !== railLayer) continue
+    const start = out.length
     walk(part.node, {
       direction,
-      frame,
+      frame: options.frame ?? 0,
       fixedRotation: part.fixedRotation === true,
       ground: part.ground === true,
       exact: part.exact === true,
-      out
+      out,
+      ...(options.orientation !== undefined ? { orientation: options.orientation } : {}),
+      ...(options.runtimeTint ? { runtimeTint: options.runtimeTint } : {})
     })
+    let offset = part.offset
+    if (part.along !== undefined) {
+      const o = (options.orientation ?? direction / 16) * 2 * Math.PI
+      const [ox, oy] = offset ?? [0, 0]
+      offset = [ox + Math.sin(o) * part.along, oy - Math.cos(o) * part.along]
+    }
+    for (let i = start; i < out.length; i++) {
+      const layer = out[i]!
+      if (offset) layer.shift = [layer.shift[0] + offset[0], layer.shift[1] + offset[1]]
+      if (part.layer && part.layer !== 'object') layer.layer = part.layer
+    }
   }
   return out
 }
@@ -82,6 +114,8 @@ interface Context {
   exact: boolean
   /** Forced rotated-sheet index (ResolveOptions.index). */
   index?: number
+  orientation?: number
+  runtimeTint?: [number, number, number, number]
   out: SpriteLayer[]
   /** Inside a SpriteNWaySheet: which of its frames to take. */
   sheet?: { index: number; frames: number }
@@ -142,11 +176,13 @@ function resolveLeaf(leaf: SpriteLeaf, ctx: Context): SpriteLayer | null {
   } else if (leaf.directionCount) {
     const dc = leaf.directionCount
     const dirIndex =
-      ctx.index ?? (ctx.fixedRotation ? 0 : Math.round((ctx.direction / 16) * dc) % dc)
+      ctx.index ??
+      byDirection(leaf, ctx.direction) ??
+      (ctx.fixedRotation ? 0 : rotatedIndex(leaf, dc, ctx))
     index = dirIndex * frameCount + frameIndex
     defaultLineLength = frameCount > 1 ? frameCount : dc
   } else {
-    index = frameIndex
+    index = byDirection(leaf, ctx.direction) ?? frameIndex
     defaultLineLength = frameCount > 1 ? frameCount : (leaf.variationCount ?? 1)
   }
   const lineLength = leaf.lineLength ?? defaultLineLength
@@ -191,11 +227,38 @@ function resolveLeaf(leaf: SpriteLeaf, ctx: Context): SpriteLayer | null {
     rect: { x: x0 + col * leaf.width, y: y0 + row * leaf.height, w: leaf.width, h: leaf.height },
     shift: leaf.shift ?? [0, 0],
     scale: leaf.scale ?? 1,
-    ...(leaf.tint ? { tint: leaf.tint } : leaf.runtimeTint ? { tint: PLAYER_COLOR } : {}),
+    ...(leaf.tint
+      ? { tint: leaf.tint }
+      : leaf.runtimeTint
+        ? { tint: ctx.runtimeTint ?? PLAYER_COLOR }
+        : {}),
     ...(leaf.additive ? { additive: true } : {}),
     shadow: leaf.shadow === true,
     ground: ctx.ground
   }
+}
+
+function byDirection(leaf: SpriteLeaf, direction: number): number | undefined {
+  return leaf.indexByDirection?.[Math.round(direction) % 16]
+}
+
+/**
+ * Index of a rotated sheet's frame for the entity's facing. With a real
+ * orientation (rolling stock) the game's `apply_projection` applies: the
+ * frames are evenly spaced in the 3D model, which the 45° view squashes
+ * vertically, so a screen angle o comes from the model angle
+ * atan2(sin o, cos o × √2). `back_equals_front` sheets cover half a turn.
+ */
+function rotatedIndex(leaf: SpriteLeaf, dc: number, ctx: Context): number {
+  const turns = leaf.backEqualsFront ? 2 : 1
+  let o: number
+  if (ctx.orientation === undefined) o = ctx.direction / 16
+  else {
+    const a = ctx.orientation * 2 * Math.PI
+    o = Math.atan2(Math.sin(a), Math.cos(a) * Math.SQRT2) / (2 * Math.PI)
+  }
+  const i = Math.round((((o % 1) + 1) % 1) * dc * turns) % dc
+  return i
 }
 
 /**
