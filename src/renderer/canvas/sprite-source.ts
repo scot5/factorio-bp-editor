@@ -5,7 +5,10 @@ import {
   graphicsFor,
   graphicsOptionsFor,
   graphicsOptionsKey,
+  circuitConnector,
+  circuitWiredEntities,
   pickShape,
+  poleVariations,
   resolveGraphics,
   resolveShape,
   resolveTile,
@@ -41,6 +44,8 @@ export function spriteSourceFor(
 ): SpriteSource {
   const { db, cache } = resolver
   let at: TileQuery | undefined
+  let variations: Map<number, number> | undefined
+  let wired: Set<number> | undefined
   const entity: SpriteSource['entity'] = (e) => {
     if (!e.known) return null
     const proto = db.entities[e.entity.name]
@@ -51,12 +56,23 @@ export function spriteSourceFor(
       shape = pickShape(db, e, at)
     }
     const options = graphicsOptionsFor(proto, e)
+    if (proto.type === 'electric-pole' && layout) {
+      variations ??= poleVariations(db, layout)
+      const variation = variations.get(e.index)
+      if (variation) options.variation = variation
+    }
+    wired ??= circuitWiredEntities(layout?.wires ?? [])
+    const connector =
+      proto.wirePoints && wired.has(e.entity.entity_number)
+        ? circuitConnector(proto.wirePoints, e, { shape, ...options })
+        : null
     const key = [
       e.entity.name,
       e.direction,
       shape ? shapeKey(shape) : '',
       graphicsOptionsKey(options),
-      drawsFlipped(proto, e) ? 'm' : ''
+      drawsFlipped(proto, e) ? 'm' : '',
+      connector?.key ?? ''
     ].join('\u0000')
     let layers = cache.get(key)
     if (layers === undefined) {
@@ -66,6 +82,7 @@ export function spriteSourceFor(
         : graphics
           ? resolveGraphics(graphics, e.direction, options)
           : null
+      if (layers && connector) layers = [...layers, ...connector.layers()]
       cache.set(key, layers)
     }
     return layers

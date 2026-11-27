@@ -5,6 +5,7 @@ import { color } from '../sprites/normalize'
 import { tileGraphics, type TileGraphics } from '../sprites/tiles'
 import type { GraphicsPart, ShapePictures } from '../sprites/types'
 import { entityConnections, type EntityConnections } from './connections'
+import { entityWirePoints, type EntityWirePoints } from './wires'
 
 /**
  * Compact prototype database built from Factorio's `data-raw-dump.json`.
@@ -13,7 +14,7 @@ import { entityConnections, type EntityConnections } from './connections'
  * Bump DB_FORMAT_VERSION whenever the shape or contents change, so cached
  * databases are rebuilt.
  */
-export const DB_FORMAT_VERSION = 5
+export const DB_FORMAT_VERSION = 6
 
 /** Types whose prototype `color` tints their runtime-tint masks. */
 const TINTED_TYPES: ReadonlySet<string> = new Set([
@@ -46,6 +47,8 @@ export interface EntityProto {
    * rolling stock (format 4+). A blueprint `color` overrides it.
    */
   color?: [number, number, number, number]
+  /** Where red, green and copper wires attach (format 6+). */
+  wirePoints?: EntityWirePoints
 }
 
 export interface ItemProto {
@@ -197,6 +200,7 @@ export function buildPrototypeDb(
       const graphicsFlipped = entityGraphicsFlipped(type, proto)
       const shapes = entityShapes(type, proto)
       const connections = entityConnections(proto)
+      const wirePoints = entityWirePoints(type, proto)
       const tint = TINTED_TYPES.has(type) ? color(proto['color']) : undefined
       entities[name] = {
         type,
@@ -207,7 +211,8 @@ export function buildPrototypeDb(
         ...(graphicsFlipped ? { graphicsFlipped } : {}),
         ...(shapes ? { shapes } : {}),
         ...(connections ? { connections } : {}),
-        ...(tint ? { color: tint } : {})
+        ...(tint ? { color: tint } : {}),
+        ...(wirePoints ? { wirePoints } : {})
       }
     }
   }

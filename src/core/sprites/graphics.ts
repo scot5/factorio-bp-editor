@@ -138,7 +138,8 @@ const turret: Extractor = (p) => {
 const combinator: Extractor = (p) => parts(p, 'sprites')
 
 /** Elevated rails and signals are drawn this many tiles above the ground. */
-const ELEVATED_HEIGHT = 3
+/** Elevated rails, signals and their wires are drawn this many tiles up. */
+export const ELEVATED_HEIGHT = 3
 
 /**
  * RailPieceLayers properties in draw order, with their RailRenderLayers key.

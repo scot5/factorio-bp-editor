@@ -35,6 +35,11 @@ export interface GraphicsOptions {
   railLayer?: RailLayer
   /** Colour for `apply_runtime_tint` masks (train stop, locomotive `color`); default PLAYER_COLOR. */
   runtimeTint?: [number, number, number, number]
+  /**
+   * Electric poles: the picture variation (0–3) to draw for `fixedRotation`
+   * parts, picked from the pole's wires (see sprites/wires.ts). Default 0.
+   */
+  variation?: number
 }
 
 export function resolveGraphics(
@@ -54,6 +59,7 @@ export function resolveGraphics(
       ground: part.ground === true,
       exact: part.exact === true,
       out,
+      ...(part.fixedRotation && options.variation ? { index: options.variation } : {}),
       ...(options.orientation !== undefined ? { orientation: options.orientation } : {}),
       ...(options.runtimeTint ? { runtimeTint: options.runtimeTint } : {})
     })

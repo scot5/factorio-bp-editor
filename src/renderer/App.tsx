@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { useEffect, useMemo, useState } from 'react'
 import type { Position } from '@core/geometry'
 import { getNode, layoutBlueprint, type Blueprint } from '@core/model'
+import { wireSegments } from '@core/sprites'
 import { BlueprintCanvas, type CanvasHover } from './canvas/BlueprintCanvas'
 import type { IconSource } from './canvas/scene'
 import { spriteResolverFor, spriteSourceFor } from './canvas/sprite-source'
@@ -73,6 +74,7 @@ export function App(): React.JSX.Element {
     () => (spriteResolver ? spriteSourceFor(spriteResolver, layout) : null),
     [spriteResolver, layout]
   )
+  const wires = useMemo(() => (layout ? wireSegments(db, layout) : []), [db, layout])
 
   const doImport = (text: string, fileName?: string): void => {
     const result = useDocuments.getState().importString(text, fileName)
@@ -208,6 +210,7 @@ export function App(): React.JSX.Element {
             fitRequest={fitRequest}
             iconSource={iconSource}
             spriteSource={spriteSource}
+            wires={wires}
             onSelect={select}
             onHover={setHover}
             onCursor={setCursor}

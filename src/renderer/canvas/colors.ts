@@ -42,3 +42,6 @@ export const CHUNK_COLOR = 0x3c3c3c
 export const SELECTION_COLOR = 0xffa200
 export const HOVER_COLOR = 0xffffff
 export const BOX_SELECT_COLOR = 0xffa200
+
+/** Wire colours, close to the game's wire sprites. */
+export const WIRE_COLORS = { copper: 0xcf7c00, red: 0xc83718, green: 0x588c38 } as const
