@@ -1,7 +1,7 @@
+import { drawLayerFor } from './layers'
 import { normalizeSprite } from './normalize'
 import {
   DIRECTION_KEYS,
-  DRAW_LAYERS,
   type DirectionKey,
   type DrawLayer,
   type GraphicsPart,
@@ -36,6 +36,7 @@ interface PartSpec {
   railLayer?: RailLayer
   /** Set as `indexByDirection` on every sprite leaf of the part. */
   indexByDirection?: number[]
+  arm?: GraphicsPart['arm']
 }
 
 type Extractor = (p: Raw) => PartSpec[]
@@ -67,14 +68,23 @@ function alwaysDrawn(graphicsSet: unknown): { before: PartSpec[]; after: PartSpe
       wv['animation'] ??
       Object.fromEntries(DIRECTION_KEYS.map((dir) => [dir, wv[`${dir}_animation`]]))
     const order = typeof wv['secondary_draw_order'] === 'number' ? wv['secondary_draw_order'] : 0
-    ;(order < 0 ? before : after).push({ value })
+    ;(order < 0 ? before : after).push({ value, ...layerOf(wv) })
   }
   return { before, after }
 }
 
+/** `{ layer }` for an object's `render_layer`, when it names a pass other than `object`. */
+function layerOf(value: Record<string, unknown>): Pick<PartSpec, 'layer'> {
+  const name = value['render_layer']
+  if (typeof name !== 'string') return {}
+  const layer = drawLayerFor(name)
+  return layer === 'object' ? {} : { layer }
+}
+
 /** CraftingMachineGraphicsSet / MiningDrillGraphicsSet. */
-const craftingMachine: Extractor = (p) => {
-  const gs = p['graphics_set']
+const craftingMachine: Extractor = (p) => craftingMachineSet(p['graphics_set'])
+
+function craftingMachineSet(gs: unknown): PartSpec[] {
   const { before, after } = alwaysDrawn(gs)
   const animation = at(gs, 'animation')
   const idle = at(gs, 'idle_animation')
@@ -83,6 +93,36 @@ const craftingMachine: Extractor = (p) => {
     main.push({ value: idle })
   if (animation) main.push({ value: animation })
   return [...before, ...main, ...after]
+}
+
+/** Graphics drawn instead of the usual ones for a mirrored entity (`graphics_set_flipped`). */
+const FLIPPED_EXTRACTORS: Record<string, Extractor> = {
+  'assembling-machine': (p) => craftingMachineSet(p['graphics_set_flipped']),
+  furnace: (p) => craftingMachineSet(p['graphics_set_flipped']),
+  'mining-drill': (p) => craftingMachineSet(p['graphics_set_flipped'])
+}
+
+/** Each entry of a list of LayeredSpriteWithRenderLayer as its own part (cargo bays and hubs). */
+function eachEntry(value: unknown): PartSpec[] {
+  return Array.isArray(value) ? value.map((entry) => ({ value: entry })) : [{ value }]
+}
+
+/**
+ * Cargo bays, the space platform hub and the cargo landing pad: the picture
+ * pieces in their own render layers, then the animation's first frame.
+ * Connections to neighbouring bays (`connections`) and the hatches are not drawn.
+ */
+const cargoHub: Extractor = (p) => [
+  ...eachEntry(at(p, 'graphics_set.picture')),
+  { value: at(p, 'graphics_set.animation') }
+]
+
+/** `{ north_graphics_set: { animation }, … }` → per-direction animations (fusion generator). */
+function perDirectionSet(gs: unknown, key: string): unknown {
+  if (!isRecord(gs)) return undefined
+  const out: Partial<Record<DirectionKey, unknown>> = {}
+  for (const dir of DIRECTION_KEYS) out[dir] = at(gs, `${dir}_graphics_set.${key}`)
+  return out
 }
 
 const turret: Extractor = (p) => {
@@ -96,38 +136,6 @@ const turret: Extractor = (p) => {
 }
 
 const combinator: Extractor = (p) => parts(p, 'sprites')
-
-/**
- * The draw pass for a game render layer name: the rail layers keep their own
- * pass, floor-level layers go to the ground pass, the train stop top above
- * bodies, other elevated layers above the elevated rails, and the rest are
- * bodies.
- */
-export function drawLayerFor(renderLayer: unknown): DrawLayer {
-  if (typeof renderLayer !== 'string') return 'object'
-  if ((DRAW_LAYERS as readonly string[]).includes(renderLayer)) return renderLayer as DrawLayer
-  if (FLOOR_LAYERS.has(renderLayer)) return 'ground'
-  if (renderLayer.startsWith('higher-object') || renderLayer === 'train-stop-top')
-    return 'higher-object'
-  if (renderLayer.startsWith('elevated-')) return 'elevated-object'
-  return 'object'
-}
-
-const FLOOR_LAYERS = new Set([
-  'decals',
-  'ground-patch',
-  'ground-patch-higher',
-  'ground-patch-higher2',
-  'transport-belt-integration',
-  'remnants',
-  'floor',
-  'transport-belt',
-  'transport-belt-endings',
-  'floor-mechanics-under-corpse',
-  'corpse',
-  'floor-mechanics',
-  'item'
-])
 
 /** Elevated rails and signals are drawn this many tiles above the ground. */
 const ELEVATED_HEIGHT = 3
@@ -275,14 +283,28 @@ const EXTRACTORS: Record<string, Extractor> = {
     { value: p['integration_patch'], ground: true },
     { value: p['animation'] ?? at(p, 'robot_door.animation') }
   ],
-  inserter: (p) => parts(p, 'platform_picture'),
+  inserter: (p) => {
+    const reach = distance(p['pickup_position'])
+    return [
+      ...parts(p, 'platform_picture'),
+      // The arm rests with the hand over the pickup position, above belts and machines.
+      {
+        value: p['hand_base_picture'],
+        layer: 'higher-object-under',
+        arm: { piece: 'base', reach }
+      },
+      { value: p['hand_open_picture'], layer: 'higher-object-under', arm: { piece: 'hand', reach } }
+    ]
+  },
   'electric-pole': (p) => [{ value: p['pictures'], fixedRotation: true }],
   lab: (p) => parts(p, 'off_animation'),
   beacon: (p) => {
     const list = at(p, 'graphics_set.animation_list')
     if (!Array.isArray(list)) return parts(p, 'animation', 'base_picture')
     return list.flatMap((entry): PartSpec[] =>
-      isRecord(entry) && entry['always_draw'] === true ? [{ value: entry['animation'] }] : []
+      isRecord(entry) && entry['always_draw'] === true
+        ? [{ value: entry['animation'], ...layerOf(entry) }]
+        : []
     )
   },
   boiler: (p) => [{ value: perDirection(p['pictures'], 'structure') }],
@@ -351,7 +373,41 @@ const EXTRACTORS: Record<string, Extractor> = {
   'fluid-wagon': rollingStock,
   'artillery-wagon': rollingStock,
   'infinity-cargo-wagon': rollingStock,
-  'simple-entity-with-owner': (p) => [{ value: p['picture'] ?? p['pictures'] ?? p['animations'] }]
+  'simple-entity-with-owner': simpleEntity,
+  'simple-entity-with-force': simpleEntity,
+  'infinity-container': (p) => parts(p, 'picture'),
+  'linked-container': (p) => parts(p, 'picture'),
+  'proxy-container': (p) => parts(p, 'picture'),
+  'electric-energy-interface': (p) => [{ value: p['picture'] ?? p['animation'] ?? p['pictures'] }],
+  valve: (p) => parts(p, 'animations'),
+  'land-mine': (p) => parts(p, 'picture_set'),
+  market: (p) => parts(p, 'picture'),
+  car: (p) => parts(p, 'animation', 'turret_animation'),
+  // Space Age
+  'agricultural-tower': craftingMachine, // the crane is not drawn
+  'asteroid-collector': (p) =>
+    // the arm is not drawn
+    parts(
+      p,
+      'graphics_set.below_ground_pictures',
+      'graphics_set.below_arm_pictures',
+      'graphics_set.animation'
+    ),
+  thruster: (p) => [
+    { value: at(p, 'graphics_set.integration_patch'), ground: true },
+    { value: at(p, 'graphics_set.animation') }
+  ],
+  'cargo-bay': cargoHub,
+  'space-platform-hub': cargoHub,
+  'cargo-landing-pad': cargoHub,
+  // connections_graphics depend on the neighbouring fusion entities
+  'fusion-reactor': (p) => parts(p, 'graphics_set.structure'),
+  'fusion-generator': (p) => [{ value: perDirectionSet(p['graphics_set'], 'animation') }],
+  'lightning-attractor': (p) => parts(p, 'chargable_graphics.picture')
+}
+
+function simpleEntity(p: Raw): PartSpec[] {
+  return [{ value: p['picture'] ?? p['pictures'] ?? p['animations'] }]
 }
 
 /** Pipe pieces by name (PipePictures); windows, visualisations and frozen variants are left out. */
@@ -415,20 +471,27 @@ const belt = (p: Raw): Record<string, unknown> => ({
   belt: at(p, 'belt_animation_set.animation_set')
 })
 
+/** Belt ends with an input/output structure: underground belts, loaders, linked belts. */
+const beltEnd = (p: Raw): Record<string, unknown> => ({
+  ...belt(p),
+  ...pick(p['structure'], [
+    'direction_in',
+    'direction_out',
+    'direction_in_side_loading',
+    'direction_out_side_loading'
+  ])
+})
+
 const SHAPE_EXTRACTORS: Record<string, ShapeExtractor> = {
   'transport-belt': belt,
-  'underground-belt': (p) => ({
-    ...belt(p),
-    ...pick(p['structure'], [
-      'direction_in',
-      'direction_out',
-      'direction_in_side_loading',
-      'direction_out_side_loading'
-    ])
-  }),
+  'underground-belt': beltEnd,
+  loader: beltEnd,
+  'loader-1x1': beltEnd,
+  'linked-belt': beltEnd,
   splitter: belt,
   'lane-splitter': belt,
   pipe: (p) => pick(p['pictures'], PIPE_KEYS),
+  'infinity-pipe': (p) => pick(p['pictures'], PIPE_KEYS),
   'heat-pipe': (p) => pick(p['connection_sprites'], HEAT_PIPE_KEYS),
   wall: (p) => pick(p['pictures'], [...WALL_KEYS, 'filling'])
 }
@@ -454,9 +517,22 @@ export function entityShapes(type: string, proto: Raw): ShapePictures | undefine
 /** The static graphics of a raw prototype, or undefined when its type is not covered. */
 export function entityGraphics(type: string, proto: Raw): GraphicsPart[] | undefined {
   const extract = EXTRACTORS[type]
-  if (!extract) return undefined
+  return extract ? buildParts(extract(proto)) : undefined
+}
+
+/**
+ * The graphics of a mirrored entity (`mirror: true`), when the prototype has
+ * its own (`graphics_set_flipped`: recycler, burner mining drill, pumpjack).
+ * Other mirrored entities look the same; only their fluid boxes flip.
+ */
+export function entityGraphicsFlipped(type: string, proto: Raw): GraphicsPart[] | undefined {
+  const extract = FLIPPED_EXTRACTORS[type]
+  return extract && proto['graphics_set_flipped'] ? buildParts(extract(proto)) : undefined
+}
+
+function buildParts(specs: PartSpec[]): GraphicsPart[] | undefined {
   const result: GraphicsPart[] = []
-  for (const spec of extract(proto)) {
+  for (const spec of specs) {
     let node: SpriteNode | null = normalizeSprite(spec.value)
     if (!node) continue
     if (spec.indexByDirection) node = withIndexByDirection(node, spec.indexByDirection)
@@ -468,7 +544,8 @@ export function entityGraphics(type: string, proto: Raw): GraphicsPart[] | undef
       ...(spec.layer && spec.layer !== 'object' ? { layer: spec.layer } : {}),
       ...(spec.offset ? { offset: spec.offset } : {}),
       ...(spec.along ? { along: spec.along } : {}),
-      ...(spec.railLayer ? { railLayer: spec.railLayer } : {})
+      ...(spec.railLayer ? { railLayer: spec.railLayer } : {}),
+      ...(spec.arm ? { arm: spec.arm } : {})
     })
   }
   return result.length ? result : undefined
@@ -490,6 +567,12 @@ function withIndexByDirection(node: SpriteNode, table: number[]): SpriteNode {
         )
       }
   }
+}
+
+/** Length of a Vector (`[x, y]` or `{ x, y }`), 1 when missing. */
+function distance(value: unknown): number {
+  const [x, y] = Array.isArray(value) ? value : isRecord(value) ? [value['x'], value['y']] : []
+  return typeof x === 'number' && typeof y === 'number' ? Math.hypot(x, y) : 1
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

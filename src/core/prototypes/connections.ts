@@ -109,10 +109,14 @@ function connectionPoint(raw: Raw): ConnectionPoint | null {
 /**
  * Where a connection is for an entity facing `facing` (16-way, rounded to 4-way):
  * the tile offset from the entity centre and the direction it points.
+ * `mirror` (blueprint `mirror: true`) flips the north-facing entity left to
+ * right before it is rotated, which is the same as flipping the rotated
+ * connection across the entity's own front-to-back axis.
  */
 export function placeConnection(
   point: ConnectionPoint,
-  facing: number
+  facing: number,
+  mirror = false
 ): { position: [number, number]; direction: number } {
   const turns = Math.round(facing / 4) % 4
   let position = point.positions?.[turns]
@@ -121,7 +125,14 @@ export function placeConnection(
     for (let i = 0; i < turns; i++) [x, y] = [-y, x]
     position = [x, y]
   }
-  return { position, direction: (point.direction + turns * 4) % 16 }
+  let direction = (point.direction + turns * 4) % 16
+  if (mirror) {
+    const across = turns % 2 === 0
+    position = across ? [-position[0], position[1]] : [position[0], -position[1]]
+    direction = (((across ? -direction : 8 - direction) % 16) + 16) % 16
+  }
+  // `+ 0` turns -0 into 0.
+  return { position: [position[0] + 0, position[1] + 0], direction }
 }
 
 function vector(value: unknown): [number, number] | undefined {

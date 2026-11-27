@@ -59,6 +59,9 @@ const CURVE: Record<number, Record<number, number>> = {
 const INDEXED_TYPES = new Set([
   'transport-belt',
   'underground-belt',
+  'loader',
+  'loader-1x1',
+  'linked-belt',
   'splitter',
   'lane-splitter',
   'wall',
@@ -75,10 +78,15 @@ export function pickShape(db: PrototypeDb, e: EntityLayout, at: TileQuery): Shap
       return beltShape(e, at)
     case 'underground-belt':
       return undergroundShape(e, at)
+    case 'loader':
+    case 'loader-1x1':
+    case 'linked-belt':
+      return loaderShape(e, at)
     case 'splitter':
     case 'lane-splitter':
       return splitterShape(e)
     case 'pipe':
+    case 'infinity-pipe':
       return { picture: pipePicture(connectedSides(db, e, at, 'fluid'), false) }
     case 'heat-pipe':
       return { picture: pipePicture(connectedSides(db, e, at, 'heat'), true) }
@@ -140,12 +148,16 @@ const undergroundType = (e: EntityLayout): 'input' | 'output' =>
   e.entity['type'] === 'output' ? 'output' : 'input'
 
 /**
- * Whether `n` moves items out of its front onto tile `target`. Loaders and
- * linked belts are not drawn yet and do not count.
+ * Whether `n` moves items out of its front onto tile `target`. Belt ends
+ * (undergrounds, loaders, linked belts) have `type: "input" | "output"` and
+ * their `direction` is the flow direction for both types.
  */
 function outputsInto({ layout: n, proto }: Neighbour, target: [number, number]): boolean {
   switch (proto.type) {
     case 'underground-belt':
+    case 'loader':
+    case 'loader-1x1':
+    case 'linked-belt':
       if (undergroundType(n) === 'input') return false
       break
     case 'transport-belt':
@@ -167,7 +179,11 @@ function acceptsFrom({ layout: n, proto }: Neighbour, dir: number): boolean {
     case 'transport-belt':
       return true
     case 'underground-belt':
+    case 'linked-belt':
       return !(undergroundType(n) === 'output' && f === dir)
+    case 'loader':
+    case 'loader-1x1':
+      return undergroundType(n) === 'input' && f === dir
     case 'splitter':
     case 'lane-splitter':
       return f === dir
@@ -232,6 +248,37 @@ function undergroundShape(e: EntityLayout, at: TileQuery): Shape {
     // The structure sheet is ordered by the side the opening faces.
     pictureDirection: (f + 8) % 16
   }
+}
+
+/**
+ * Loaders and linked belts: a straight belt on the belt side (the tail of an
+ * input loader, the head of an output one; the whole tile for 1×1 loaders and
+ * linked belts) with its start or end cap, then the structure, chosen like an
+ * underground belt's.
+ */
+function loaderShape(e: EntityLayout, at: TileQuery): Shape {
+  const f = facing4(e)
+  const i = f / 4
+  const input = undergroundType(e) === 'input'
+  const long = Math.max(e.box.right - e.box.left, e.box.bottom - e.box.top) >= 2
+  const step = STEP[f]!
+  const along = long ? (input ? -0.5 : 0.5) : 0
+  const offset: [number, number] = [step[0] * along + 0, step[1] * along + 0] // no -0
+  const belt = (index: number): { index: number; offset?: [number, number] } =>
+    along ? { index, offset } : { index }
+  const belts = [belt(STRAIGHT[i]! - 1)]
+  // The tile on the belt side, and the tile beyond it.
+  const centre = [(e.box.left + e.box.right) / 2, (e.box.top + e.box.bottom) / 2]
+  const tile: [number, number] = [
+    Math.floor(centre[0]! + offset[0]),
+    Math.floor(centre[1]! + offset[1])
+  ]
+  if (input) {
+    if (!feeds(at, tile, (f + 8) % 16)) belts.push(belt(STARTING[i]! - 1))
+  } else if (!continues(at, tile, f)) belts.push(belt(ENDING[i]! - 1))
+  return input
+    ? { belts, picture: 'direction_in' }
+    : { belts, picture: 'direction_out', pictureDirection: (f + 8) % 16 }
 }
 
 function splitterShape(e: EntityLayout): Shape {
@@ -305,13 +352,13 @@ function activeConnections(
       roles ??= recipeFluids(db, e.entity.recipe)
       if (!roles[point.production]) continue
     }
-    out.push(place(point, e.direction))
+    out.push(place(point, e.direction, e.entity['mirror'] === true))
   }
   return out
 }
 
-function place(point: ConnectionPoint, direction: number): PlacedConnection {
-  const placed = placeConnection(point, direction)
+function place(point: ConnectionPoint, direction: number, mirror: boolean): PlacedConnection {
+  const placed = placeConnection(point, direction, mirror)
   return point.categories ? { ...placed, categories: point.categories } : placed
 }
 

@@ -90,8 +90,21 @@ describe('placeConnection', () => {
     const point = { position: [0, -1] as [number, number], direction: 0 }
     expect(placeConnection(point, 0)).toEqual({ position: [0, -1], direction: 0 })
     expect(placeConnection(point, 4)).toEqual({ position: [1, 0], direction: 4 })
-    expect(placeConnection(point, 8)).toEqual({ position: [-0, 1], direction: 8 })
-    expect(placeConnection(point, 12)).toEqual({ position: [-1, -0], direction: 12 })
+    expect(placeConnection(point, 8)).toEqual({ position: [0, 1], direction: 8 })
+    expect(placeConnection(point, 12)).toEqual({ position: [-1, 0], direction: 12 })
+  })
+
+  it('mirrors left to right before rotating (mirror: true)', () => {
+    // A chemical plant input at the bottom left, pointing down.
+    const point = { position: [-1, 1] as [number, number], direction: 8 }
+    expect(placeConnection(point, 0, true)).toEqual({ position: [1, 1], direction: 8 })
+    // East-facing: unmirrored at (-1, -1); mirrored at (-1, 1), still pointing left.
+    expect(placeConnection(point, 4)).toEqual({ position: [-1, -1], direction: 12 })
+    expect(placeConnection(point, 4, true)).toEqual({ position: [-1, 1], direction: 12 })
+    // A side connection flips its direction.
+    const side = { position: [1, 0] as [number, number], direction: 4 }
+    expect(placeConnection(side, 0, true)).toEqual({ position: [-1, 0], direction: 12 })
+    expect(placeConnection(side, 4, true)).toEqual({ position: [0, -1], direction: 0 })
   })
 
   it('uses per-facing positions when given (pumpjack)', () => {

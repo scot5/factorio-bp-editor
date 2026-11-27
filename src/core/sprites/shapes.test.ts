@@ -70,6 +70,41 @@ const RAW = {
       }
     }
   },
+  loader: {
+    loader: {
+      name: 'loader',
+      collision_box: [
+        [-0.4, -0.9],
+        [0.4, 0.9]
+      ],
+      belt_animation_set: beltSet,
+      structure: { direction_in: structure(0), direction_out: structure(192) }
+    }
+  },
+  'loader-1x1': {
+    'loader-1x1': {
+      name: 'loader-1x1',
+      collision_box: box1,
+      belt_animation_set: beltSet,
+      structure: { direction_in: structure(0), direction_out: structure(192) }
+    }
+  },
+  'linked-belt': {
+    'linked-belt': {
+      name: 'linked-belt',
+      collision_box: box1,
+      belt_animation_set: beltSet,
+      structure: { direction_in: structure(0), direction_out: structure(192) }
+    }
+  },
+  'infinity-pipe': {
+    'infinity-pipe': {
+      name: 'infinity-pipe',
+      collision_box: box1,
+      fluid_box: { volume: 100, pipe_connections: four() },
+      pictures: pictures('infinity-pipe', ['straight_vertical_single', 'ending_right'])
+    }
+  },
   splitter: {
     splitter: {
       name: 'splitter',
@@ -144,6 +179,22 @@ const RAW = {
         {
           production_type: 'output',
           pipe_connections: [{ flow_direction: 'output', direction: 8, position: [0, 1] }]
+        }
+      ]
+    }
+  },
+  'chemical-plant-like': {
+    'chemical-plant': {
+      name: 'chemical-plant',
+      type: 'assembling-machine',
+      collision_box: [
+        [-1.2, -1.2],
+        [1.2, 1.2]
+      ],
+      fluid_boxes: [
+        {
+          production_type: 'input',
+          pipe_connections: [{ flow_direction: 'input', direction: 0, position: [-1, -1] }]
         }
       ]
     }
@@ -347,6 +398,49 @@ describe('underground belts', () => {
   })
 })
 
+describe('loaders and linked belts', () => {
+  it('an input loader draws its belt on the tail tile, with a start piece when nothing feeds it', () => {
+    const [loader] = shapesOf([{ name: 'loader', x: 0.5, y: 1, type: 'input' }])
+    expect(loader).toEqual({
+      belts: [
+        { index: row.north, offset: [0, 0.5] },
+        { index: row.startNorth, offset: [0, 0.5] }
+      ],
+      picture: 'direction_in'
+    })
+  })
+
+  it('a belt feeds an input loader, and an output loader feeds the belt ahead', () => {
+    const [fed, feeder] = shapesOf([{ name: 'loader', x: 0.5, y: 1, type: 'input' }, belt(0, 2)])
+    expect(belts(fed!)).toEqual([row.north])
+    expect(belts(feeder!)).toEqual([row.north, row.startNorth])
+    const [out, ahead] = shapesOf([
+      { name: 'loader', x: 1, y: 0.5, type: 'output', direction: E_ },
+      belt(2, 0, E_)
+    ])
+    expect(out).toEqual({
+      belts: [{ index: row.east, offset: [0.5, 0] }],
+      picture: 'direction_out',
+      pictureDirection: W
+    })
+    expect(belts(ahead!)).toEqual([row.east, row.endEast])
+  })
+
+  it('1×1 loaders and linked belts draw the belt on their own tile', () => {
+    const [l1, linked] = shapesOf([
+      { name: 'loader-1x1', x: 0.5, y: 0.5, type: 'output' },
+      { name: 'linked-belt', x: 3.5, y: 0.5, type: 'input', direction: W }
+    ])
+    expect(l1).toEqual({
+      belts: [{ index: row.north }, { index: row.endNorth }],
+      picture: 'direction_out',
+      pictureDirection: S
+    })
+    expect(linked?.belts?.every((b) => b.offset === undefined)).toBe(true)
+    expect(linked?.picture).toBe('direction_in')
+  })
+})
+
 describe('splitters', () => {
   it('draws two belts, half a tile either side, then the structure', () => {
     const [north] = shapesOf([{ name: 'splitter', x: 1, y: 0.5 }])
@@ -431,6 +525,25 @@ describe('pipes', () => {
     expect(shapesOf([machine('electric-engine-unit'), pipe(-1, 1)])[1]?.picture).toBe(
       'straight_vertical_single'
     )
+  })
+
+  it('infinity pipes join pipes like a pipe', () => {
+    const [inf] = shapesOf([{ name: 'infinity-pipe', x: 0.5, y: 0.5 }, pipe(1, 0)])
+    expect(inf?.picture).toBe('ending_right')
+  })
+
+  it('a mirrored machine has its fluid boxes flipped left to right', () => {
+    // Chemical plant at (1.5, 1.5): the input is on the top-left tile (0, 0) and points up.
+    const plant = (mirror: boolean): E => ({
+      name: 'chemical-plant',
+      x: 1.5,
+      y: 1.5,
+      ...(mirror ? { mirror: true } : {})
+    })
+    expect(shapesOf([plant(false), pipe(0, -1)])[1]?.picture).toBe('ending_down')
+    expect(shapesOf([plant(false), pipe(2, -1)])[1]?.picture).toBe('straight_vertical_single')
+    expect(shapesOf([plant(true), pipe(2, -1)])[1]?.picture).toBe('ending_down')
+    expect(shapesOf([plant(true), pipe(0, -1)])[1]?.picture).toBe('straight_vertical_single')
   })
 
   it('heat pipes connect through heat connections', () => {

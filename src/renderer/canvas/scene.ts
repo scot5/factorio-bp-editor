@@ -10,7 +10,7 @@ import {
   Texture
 } from 'pixi.js'
 import { directionVector, SpatialIndex, type Box, type Position } from '@core/geometry'
-import type { BlueprintLayout, EntityLayout } from '@core/model'
+import type { BlueprintLayout, EntityLayout, TileLayout } from '@core/model'
 import type { EntityCategory } from '@core/prototypes'
 import { DRAW_LAYERS, type DrawLayer, type SpriteLayer } from '@core/sprites'
 import { visibleBox, type Camera } from './camera'
@@ -31,16 +31,17 @@ import { TextureCache } from './textures'
  * `setLayout`, `setCamera`, `setSelection`, `setHover`; the scene renders on
  * demand (no continuous ticker). See docs/spec/04-visualization.md.
  *
- * Layers (bottom to top): grid, tiles, footprints, sprite passes (rail
- * stone paths … rail metals, ground patches, shadows, bodies sorted by y,
- * the train stop top, elevated rails, elevated objects: see POOL_ORDER),
- * icons, direction arrows, selection, hover, box-select rectangle, labels
- * (screen space).
+ * Layers (bottom to top): grid, tile colours, tile sprites, footprints,
+ * sprite passes (rail stone paths … rail metals, ground patches,
+ * lower objects, shadows, the body passes by render layer, elevated rails,
+ * elevated objects: see POOL_ORDER; each pass in entity y order), icons,
+ * direction arrows, selection, hover, box-select rectangle, labels (screen
+ * space).
  *
  * Level of detail: from SPRITE_MIN_SCALE px/tile up, entities with game
  * graphics are drawn as sprites and the rest keep footprints and icons
- * (rebuilt per frame for the visible ones). Below it, one static footprint
- * path is drawn for all entities.
+ * (rebuilt per frame for the visible ones), and tiles get their sprites.
+ * Below it, one static footprint path is drawn for all entities.
  */
 
 const INSET = 0.06 // gap between neighbouring footprints, in tiles
@@ -51,6 +52,7 @@ const ICON_MIN_SCALE = 10 // px/tile
 const MAX_ICONS = 4000
 const SPRITE_MIN_SCALE = 16 // px/tile (spec 04: 1/4 zoom)
 const MAX_SPRITE_ENTITIES = 6000
+const MAX_TILE_SPRITES = 20000
 const SPRITE_MARGIN = 3 // tiles: sprites overhang their footprint (tall poles, shadows)
 const PX_PER_TILE_AT_SCALE_1 = 32 // Factorio sprites: 32 px per tile at scale 1
 /**
@@ -62,8 +64,13 @@ const SHADOW_ALPHA = 0.5
 /** Icon URL for an entity, or null when it has none. */
 export type IconSource = (entity: EntityLayout) => string | null
 
-/** Sprite layers for an entity, or null when it has no graphics (footprint fallback). */
-export type SpriteSource = (entity: EntityLayout) => readonly SpriteLayer[] | null
+/** Game graphics for a blueprint (null when there is no game data). */
+export interface SpriteSource {
+  /** Sprite layers for an entity, or null when it has no graphics (footprint fallback). */
+  entity: (entity: EntityLayout) => readonly SpriteLayer[] | null
+  /** The sprite for a tile, or null when it has none (flat colour). */
+  tile: (tile: TileLayout) => SpriteLayer | null
+}
 
 interface SpritePool {
   container: Container
@@ -73,10 +80,10 @@ interface SpritePool {
 
 const newPool = (): SpritePool => ({ container: new Container(), sprites: [], used: 0 })
 
-/** Sprite passes, bottom to top: the draw layers with the shadow pass under the bodies. */
+/** Sprite passes, bottom to top: the draw layers with the shadow pass above `lower-object`. */
 type PoolName = DrawLayer | 'shadow'
 const POOL_ORDER: readonly PoolName[] = DRAW_LAYERS.flatMap((l): PoolName[] =>
-  l === 'object' ? ['shadow', l] : [l]
+  l === 'lower-object' ? [l, 'shadow'] : [l]
 )
 
 /** The pass a layer is drawn in. Shadows always go to the shadow pass. */
@@ -100,6 +107,10 @@ export class Scene {
   private readonly spriteLayers = new Map<EntityLayout, readonly SpriteLayer[] | null>()
   private readonly spriteTextures = new TextureCache(() => this.invalidate())
   private readonly pools = new Map<PoolName, SpritePool>(POOL_ORDER.map((n) => [n, newPool()]))
+  /** Tile sprites, above the flat tile colours (which show while sheets load). */
+  private readonly tilePool = newPool()
+  private readonly tileLayers = new Map<TileLayout, SpriteLayer | null>()
+  private tileIndex = new SpatialIndex<TileLayout>()
   /** Per-frame footprints and arrows of visible entities not drawn as sprites. */
   private readonly detail = new Graphics()
   private readonly detailArrows = new Graphics()
@@ -142,6 +153,7 @@ export class Scene {
     this.app.stage.addChild(this.grid, this.world, this.labels)
     this.world.addChild(
       this.tiles,
+      this.tilePool.container,
       this.entities,
       this.detail,
       ...[...this.pools.values()].map((p) => p.container),
@@ -162,7 +174,7 @@ export class Scene {
   destroy(): void {
     this.destroyed = true
     cancelAnimationFrame(this.frame)
-    for (const pool of this.pools.values())
+    for (const pool of [...this.pools.values(), this.tilePool])
       for (const sprite of pool.sprites) sprite.texture = Texture.EMPTY
     this.spriteTextures.destroy()
     if (this.ready) this.app.destroy(true, { children: true })
@@ -179,8 +191,12 @@ export class Scene {
   setLayout(layout: BlueprintLayout | null): void {
     this.layout = layout
     this.spriteLayers.clear()
+    this.tileLayers.clear()
     this.index = new SpatialIndex<EntityLayout>()
     for (const e of layout?.entities ?? []) this.index.insert(e.box, e)
+    this.tileIndex = new SpatialIndex<TileLayout>()
+    for (const t of layout?.tiles ?? [])
+      this.tileIndex.insert({ left: t.x, top: t.y, right: t.x + 1, bottom: t.y + 1 }, t)
     this.drawTiles()
     this.drawEntities()
     this.drawSelection()
@@ -198,6 +214,7 @@ export class Scene {
   setSpriteSource(source: SpriteSource | null): void {
     this.spriteSource = source
     this.spriteLayers.clear()
+    this.tileLayers.clear()
     this.invalidate()
   }
 
@@ -269,7 +286,7 @@ export class Scene {
         // A bad sprite must never stop the rest of the frame from rendering.
         console.error('Sprite rendering failed', error)
         this.spriteSource = null
-        for (const pool of this.pools.values()) this.finishPool(pool, 0)
+        for (const pool of [...this.pools.values(), this.tilePool]) this.finishPool(pool, 0)
       }
       this.drawDetail(spriteMode, withSprites)
       let withIcons = new Set<EntityLayout>()
@@ -367,6 +384,7 @@ export class Scene {
       if (visible.length <= MAX_SPRITE_ENTITIES) {
         active = true
         this.spriteTextures.beginFrame()
+        this.drawTileSprites(source, view)
         // Bodies in y order, so entities lower on screen overlap the ones behind.
         visible.sort(
           (a, b) => a.box.top + a.box.bottom - (b.box.top + b.box.bottom) || a.index - b.index
@@ -374,7 +392,7 @@ export class Scene {
         for (const e of visible) {
           let layers = this.spriteLayers.get(e)
           if (layers === undefined) {
-            layers = source(e)
+            layers = source.entity(e)
             this.spriteLayers.set(e, layers)
           }
           if (!layers || layers.length === 0) continue
@@ -391,7 +409,10 @@ export class Scene {
             pool.used++
             sprite.texture = texture
             sprite.position.set(cx + layer.shift[0], cy + layer.shift[1])
-            sprite.scale.set(layer.scale / PX_PER_TILE_AT_SCALE_1)
+            const s = layer.scale / PX_PER_TILE_AT_SCALE_1
+            sprite.scale.set(s, s * (layer.squash ?? 1))
+            sprite.anchor.set(layer.anchor?.[0] ?? 0.5, layer.anchor?.[1] ?? 0.5)
+            sprite.rotation = layer.rotation ?? 0
             sprite.tint = layer.tint ? rgb(layer.tint) : 0xffffff
             sprite.alpha = layer.tint ? layer.tint[3] : 1
             sprite.blendMode = layer.additive ? 'add' : 'normal'
@@ -403,7 +424,38 @@ export class Scene {
       }
     }
     for (const pool of pools.values()) this.finishPool(pool, pool.used)
+    if (!active) this.tilePool.used = 0
+    this.finishPool(this.tilePool, this.tilePool.used)
     return [active, drawn]
+  }
+
+  /** Tile sprites for the visible tiles, when there are not too many. */
+  private drawTileSprites(source: SpriteSource, view: Box): void {
+    const pool = this.tilePool
+    pool.used = 0
+    const visible = this.tileIndex.query(view)
+    if (visible.length > MAX_TILE_SPRITES) return
+    for (const t of visible) {
+      let layer = this.tileLayers.get(t)
+      if (layer === undefined) {
+        layer = source.tile(t)
+        this.tileLayers.set(t, layer)
+      }
+      if (!layer) continue
+      const texture = this.spriteTextures.frame(layer.url, layer.rect)
+      if (texture === 'loading' || texture === 'failed') continue
+      const sprite = pool.sprites[pool.used] ?? this.createSprite(pool)
+      pool.used++
+      sprite.texture = texture
+      sprite.position.set(t.x + 0.5, t.y + 0.5)
+      sprite.scale.set(layer.scale / PX_PER_TILE_AT_SCALE_1)
+      sprite.anchor.set(0.5)
+      sprite.rotation = 0
+      sprite.tint = 0xffffff
+      sprite.alpha = 1
+      sprite.blendMode = 'normal'
+      sprite.visible = true
+    }
   }
 
   private createSprite(pool: SpritePool): Sprite {
@@ -426,8 +478,7 @@ export class Scene {
 
   /**
    * In sprite mode the static footprint path is hidden; footprints and arrows
-   * are drawn here for the visible entities without a sprite, plus arrows for
-   * inserters (their hand is not drawn yet, so the arrow shows the facing).
+   * are drawn here for the visible entities without a sprite.
    */
   private drawDetail(spriteMode: boolean, withSprites: ReadonlySet<EntityLayout>): void {
     const g = this.detail
@@ -443,13 +494,11 @@ export class Scene {
     const byCategory = new Map<EntityCategory, EntityLayout[]>()
     const withArrows: EntityLayout[] = []
     for (const e of visible) {
-      const sprite = withSprites.has(e)
-      if (!sprite) {
-        const list = byCategory.get(e.category)
-        if (list) list.push(e)
-        else byCategory.set(e.category, [e])
-      }
-      if (!sprite || e.category === 'inserter') withArrows.push(e)
+      if (withSprites.has(e)) continue
+      const list = byCategory.get(e.category)
+      if (list) list.push(e)
+      else byCategory.set(e.category, [e])
+      withArrows.push(e)
     }
     for (const [category, list] of byCategory) fillFootprints(g, category, list)
     strokeArrows(arrows, withArrows)
