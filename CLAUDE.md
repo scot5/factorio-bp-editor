@@ -49,7 +49,7 @@ Before you call a task done, run `typecheck`, `lint` and `test`. Also run `test:
 - `src/core/ipc.ts`: IPC channel names and the `BridgeApi` type. To add an IPC call, add it to `ipc.ts`, then a handler in `src/main`, then the preload mapping.
 - `src/renderer`: React app (`@renderer/*`). Entry is `index.html` → `main.tsx`.
 - `src/main/assets`: game install detection, the dump runner, the cache and the `factorio-asset://` protocol. Never start the game except from the user's "Load game data" action.
-- E2E tests launch the app with `tests/e2e/launch.ts`, which uses a fresh `FBE_USER_DATA` folder, so tests never touch the real settings or cache.
+- E2E tests launch the app with `tests/e2e/launch.ts`, which uses a fresh `FBE_USER_DATA` folder, so tests never touch the real settings or cache. Set `FBE_WINDOW_DISPLAY=1` (a 0-based display index) to open test and dev windows on another display without taking focus.
 
 ## Architecture rules
 
