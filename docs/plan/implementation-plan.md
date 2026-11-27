@@ -92,6 +92,12 @@ Every root type is covered. The remaining gaps (Space Age planet buildings, powe
 - `migrate1to2(env)`: directions ×2, per-entity `connections` → top-level `wires`, `items` map → insert plans, and the rename table.
 - **Done when** each 1.1 corpus string migrates, re-encodes and imports into 2.1 without errors (checked by hand once, then by snapshot).
 
+**Status: implemented, waiting on verification.** `src/core/migrate`. The rename table is copied from the game's migration files. All 3 legacy strings migrate, validate with no issues, keep every entity, and get matching-colour wires. Still open:
+
+1. Re-export the three 1.1 strings from the game (import into 2.1, then export) into `tests/corpus/legacy-1.1-game-export/`.
+2. Compare them with our migration to settle the open questions: inventory ids, power switch connectors, 1.1 rails, and filter inserter `use_filters`.
+3. Add a test that compares the two.
+
 **M1 exit:** `src/core/codec` and `src/core/model` have high test coverage, CI is green, and spec 02 is updated with the confirmed facts.
 
 ## M2: Viewer ([spec 04](../spec/04-visualization.md))

@@ -145,9 +145,19 @@ JSON parsing notes for round-trip:
 **1.1 blueprints** (major < 2) MUST import through a migration step:
 
 - 8-way `direction` → 16-way (×2).
-- Per-entity `connections` / `neighbours` → top-level `wires`.
+- Per-entity `connections` / `neighbours` → top-level `wires`. 1.1 connection point `"1"` maps to connectors 1 (red) and 2 (green), and point `"2"` (combinator output) to 3 and 4. A missing `circuit_id` means 1. Copper `neighbours` map to 5. Each wire is listed on both of its entities in 1.1, so it is written once.
 - `items` as `{ name: count }` → 2.0 insert plans.
-- Entities and items renamed in 2.0 (for example `filter-inserter` → `fast-inserter` with filters, `stack-filter-inserter` → `bulk-inserter`) through a rename table.
+- Prototype renames, taken from the game's own `data/base/migrations` files and applied in `migrations.txt` order. For example `filter-inserter` → `fast-inserter`, `stack-filter-inserter` → `bulk-inserter`, and 1.1's `stack-inserter` → `bulk-inserter` (the "1.2.0 stack inserter rename" swap). Former filter inserters get `use_filters: true`.
+- Train schedules: the 1.1 list of records becomes `{ records: […] }`.
+
+Implementation: `src/core/migrate` (`migrate1to2` returns the migrated copy, a list of renames and notes for the UI).
+
+**Not verified yet:**
+- inventory ids for converted `items` (modules, fuel, ammo);
+- power switch copper connectors (`Cu0` / `Cu1` → 5 / 6);
+- how 1.1 `straight-rail` / `curved-rail` map onto 2.0 rail pieces. They are kept as-is for now.
+
+These are reported as migration notes. Verify them against the same strings imported into the game and re-exported. **Not migrated:** `control_behavior` and other settings whose format changed in 2.0 (for example combinator conditions). They are kept verbatim, so nothing is lost, but analysis may not understand them.
 
 After migration, the blueprint is stamped with the current game version. The UI SHOULD show a "migrated from 1.1" notice.
 
