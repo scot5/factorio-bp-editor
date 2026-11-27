@@ -80,6 +80,20 @@ Added in M4 PR 1 for the analysis reports (06). Implementation: `src/core/protot
 - **`tileItems`:** the items that place each tile: the tile's `placeable_by` (hazard concrete right, frozen tiles), else an item whose `place_as_tile` names it.
 - **Display names (`names`):** per category (`entity`, `item`, `recipe`, `fluid`, `tile`, `virtual-signal`, `quality`, `space-location`). The main process reads `data/core` and then each enabled built-in mod's `locale/en/*.cfg` (later mods win); downloaded mods are not read yet (M7, with mod zips). Keys are `<section>.<key>`, as LocalisedStrings use them. The name is the prototype's `localised_name` (a LocalisedString, resolved with `__1__` parameters and `__ENTITY__x__` style references), else `<category>-name.<name>`. Items without one take the name of the entity or tile they place, or of their equipment (`equipment-name`); recipes take the name of their main or only product. Without game data, or for a name not found, the UI shows the internal name (`displayName`).
 
+### Power fields (DB format 8)
+
+Added in M4 plan step 2 for the power report (06 § 4). Checked against the 2.1.25 dump; the fields add about 1 KB (the cached DB, icon lists included, is about 967 KB).
+
+- **`energyUsage`** now also reads the fields that other types use for it: lamp and programmable speaker `energy_usage_per_tick` (a power despite its name, e.g. `"5kW"`), fusion reactor `power_input`, and combinator `active_energy_usage` (only when the prototype has no `energy_usage`). The asteroid collector's `passive_energy_usage` (`"200J"`) is energy per tick, so it is stored × 60.
+- **`activeEnergyUsage`:** extra power while busy. Rocket silo `active_energy_usage` (launch sequence, 3.99 MW), agricultural tower `crane_energy_usage`, asteroid collector `arm_energy_usage` (per tick, × 60).
+- **`energySource`** gains `bufferCapacity`, `inputFlowLimit` and `outputFlowLimit` (accumulators, roboports, electric turrets, fusion generator, lightning attractors).
+- **`powerOutput`** (peak electric output, W): solar panel `production`; burner generator `max_power_output`; fusion generator `energy_source.output_flow_limit` (50 MW); electric energy interface `energy_production`. A generator uses `max_power_output` when set, else `fluid_usage_per_tick × 60 × (maximum_temperature − fluid default_temperature) × fluid heat_capacity × effectivity` with the fluid of its `fluid_box.filter` (prototype-api.json, `GeneratorPrototype::burns_fluid`): steam engine 900 kW, steam turbine 5.82 MW. A fluid's `heat_capacity` defaults to 1 kJ.
+- **Reactors:** `heatOutput` (`consumption`, 40 MW) and `neighbourBonus` (default 1; the heating tower has 0).
+- **`beaconCounter`:** `same_type` when set (vanilla beacons); the API default `total` is omitted.
+- **`qualityAffectsEnergyUsage`:** crafting machine `quality_affects_energy_usage` (default false; no vanilla machine sets it).
+- **`PrototypeDb.planets`:** `{ solarPower, solarPowerInSpace? }` per planet, in percent. `solarPower` is the planet's `solar-power` surface property, else the property's `default_value` (100; Nauvis does not set it). 2.1.25: Nauvis 100 / 300 in orbit, Vulcanus 400 / 600, Gleba 50 / 200, Fulgora 20 / 120, Aquilo 1 / 60.
+- **Quality:** `qualityMultiplier(q, 'accumulator_capacity')` defaults to 1 + level (prototype-api.json). No vanilla quality sets an explicit power multiplier other than `beacon_power_usage`.
+
 ### Typed schemas
 
 `doc-html/prototype-api.json` describes every prototype type and property in machine-readable form. Use it at build time to generate TypeScript types for the parts of the dump the app reads. Do not hand-write them.

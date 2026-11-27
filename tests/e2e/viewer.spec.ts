@@ -69,6 +69,8 @@ test('analyses the blueprint in the worker; rows select their entities', async (
   await expect(page.getByTestId('bom-row')).toHaveCount(2)
   await expect(page.getByTestId('bom-row').first()).toContainText('big-electric-pole')
   await expect(page.getByTestId('bom-row').first()).toContainText('8')
+  // Power needs game data.
+  await expect(page.getByTestId('power-needs-data')).toBeVisible()
   await page.getByTestId('entities-row').first().click()
   await expect(page.getByTestId('selection-count')).toHaveText('8 selected')
   await page.getByTestId('blueprint-canvas').press('Escape')
