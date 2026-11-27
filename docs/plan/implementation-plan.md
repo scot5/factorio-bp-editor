@@ -117,7 +117,7 @@ Needed before circuit analysis (M4) works on 1.1 blueprints.
 
 Goal: paste a string and see it laid out as footprint boxes with names, inside a usable shell. No game assets yet.
 
-**Status: done except the size data for 2.5.** `pnpm gen:sizes --dump` must be run once with Factorio closed. Until then every entity draws as a 1×1 "unknown" box.
+**Status: done.** The size table (2.5) is generated from the Factorio 2.1.25 dump: 170 blueprintable entity types, with corpses, decoratives, enemies and other non-blueprintable types filtered out. `tests/unit/sizes-corpus.test.ts` checks that every vanilla corpus entity, including migrated 1.1 ones, is known, and that only modded names are unknown.
 - **Renderer:** `src/renderer` (Zustand + Immer store, Radix dialogs, Tailwind 4) and a PixiJS 8 scene that renders on demand.
 - **Core:** `src/core/richtext` (rich text parser), `src/core/geometry/spatial.ts` (uniform grid index), `src/core/model/layout.ts` (footprints), `src/core/prototypes` (size lookup and category colours).
 - **Main:** IPC for the open and save dialogs and the clipboard.
