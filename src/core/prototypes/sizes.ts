@@ -134,3 +134,19 @@ export const ROLLING_STOCK_TYPES: ReadonlySet<string> = new Set([
   'artillery-wagon',
   'infinity-cargo-wagon'
 ])
+
+/**
+ * Types whose facing always matters, so they are directional even when the
+ * blueprint omits `direction` (north is the default and is not written).
+ */
+export const FACING_TYPES: ReadonlySet<string> = new Set([
+  'inserter',
+  'transport-belt',
+  'underground-belt',
+  'splitter',
+  'lane-splitter',
+  'loader',
+  'loader-1x1',
+  'linked-belt',
+  'pump'
+])

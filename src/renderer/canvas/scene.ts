@@ -1,8 +1,18 @@
 import 'pixi.js/unsafe-eval' // Pixi without eval, so the strict CSP stays in place
-import { Application, Container, Graphics, Sprite, Text, TextStyle, Texture } from 'pixi.js'
+import {
+  AlphaFilter,
+  Application,
+  Container,
+  Graphics,
+  Sprite,
+  Text,
+  TextStyle,
+  Texture
+} from 'pixi.js'
 import { directionVector, SpatialIndex, type Box, type Position } from '@core/geometry'
 import type { BlueprintLayout, EntityLayout } from '@core/model'
 import type { EntityCategory } from '@core/prototypes'
+import type { SpriteLayer } from '@core/sprites'
 import { visibleBox, type Camera } from './camera'
 import {
   BACKGROUND,
@@ -14,14 +24,21 @@ import {
   SELECTION_COLOR,
   TILE_COLOR
 } from './colors'
+import { TextureCache } from './textures'
 
 /**
  * Imperative PixiJS scene for one blueprint. React owns the data and calls
  * `setLayout`, `setCamera`, `setSelection`, `setHover`; the scene renders on
  * demand (no continuous ticker). See docs/spec/04-visualization.md.
  *
- * Layers (bottom to top): grid, tiles, entities, icons, direction arrows,
+ * Layers (bottom to top): grid, tiles, footprints, sprite ground patches,
+ * sprite shadows, sprite bodies (sorted by y), icons, direction arrows,
  * selection, hover, box-select rectangle, labels (screen space).
+ *
+ * Level of detail: from SPRITE_MIN_SCALE px/tile up, entities with game
+ * graphics are drawn as sprites and the rest keep footprints and icons
+ * (rebuilt per frame for the visible ones). Below it, one static footprint
+ * path is drawn for all entities.
  */
 
 const INSET = 0.06 // gap between neighbouring footprints, in tiles
@@ -30,9 +47,29 @@ const LABEL_MIN_SCALE = 48
 const MAX_LABELS = 400
 const ICON_MIN_SCALE = 10 // px/tile
 const MAX_ICONS = 4000
+const SPRITE_MIN_SCALE = 16 // px/tile (spec 04: 1/4 zoom)
+const MAX_SPRITE_ENTITIES = 6000
+const SPRITE_MARGIN = 3 // tiles: sprites overhang their footprint (tall poles, shadows)
+const PX_PER_TILE_AT_SCALE_1 = 32 // Factorio sprites: 32 px per tile at scale 1
+/**
+ * Shadows are drawn as one group at this opacity, like the game's shadow pass,
+ * so overlapping shadows do not get darker.
+ */
+const SHADOW_ALPHA = 0.5
 
 /** Icon URL for an entity, or null when it has none. */
 export type IconSource = (entity: EntityLayout) => string | null
+
+/** Sprite layers for an entity, or null when it has no graphics (footprint fallback). */
+export type SpriteSource = (entity: EntityLayout) => readonly SpriteLayer[] | null
+
+interface SpritePool {
+  container: Container
+  sprites: Sprite[]
+  used: number
+}
+
+const newPool = (): SpritePool => ({ container: new Container(), sprites: [], used: 0 })
 
 export class Scene {
   readonly app = new Application()
@@ -45,6 +82,15 @@ export class Scene {
   private readonly iconPool: Sprite[] = []
   private readonly textures = new Map<string, Texture | 'loading' | 'failed'>()
   private iconSource: IconSource | null = null
+  private spriteSource: SpriteSource | null = null
+  private readonly spriteLayers = new Map<EntityLayout, readonly SpriteLayer[] | null>()
+  private readonly spriteTextures = new TextureCache(() => this.invalidate())
+  private readonly groundSprites = newPool()
+  private readonly shadowSprites = newPool()
+  private readonly bodySprites = newPool()
+  /** Per-frame footprints and arrows of visible entities not drawn as sprites. */
+  private readonly detail = new Graphics()
+  private readonly detailArrows = new Graphics()
   private readonly selectionLayer = new Graphics()
   private readonly hoverLayer = new Graphics()
   private readonly boxSelect = new Graphics()
@@ -85,12 +131,18 @@ export class Scene {
     this.world.addChild(
       this.tiles,
       this.entities,
+      this.detail,
+      this.groundSprites.container,
+      this.shadowSprites.container,
+      this.bodySprites.container,
       this.icons,
       this.arrows,
+      this.detailArrows,
       this.selectionLayer,
       this.hoverLayer,
       this.boxSelect
     )
+    this.shadowSprites.container.filters = [new AlphaFilter({ alpha: SHADOW_ALPHA })]
     host.appendChild(this.app.canvas)
     this.app.renderer.on('resize', () => this.invalidate())
     this.ready = true
@@ -100,6 +152,9 @@ export class Scene {
   destroy(): void {
     this.destroyed = true
     cancelAnimationFrame(this.frame)
+    for (const pool of [this.groundSprites, this.shadowSprites, this.bodySprites])
+      for (const sprite of pool.sprites) sprite.texture = Texture.EMPTY
+    this.spriteTextures.destroy()
     if (this.ready) this.app.destroy(true, { children: true })
   }
 
@@ -113,6 +168,7 @@ export class Scene {
 
   setLayout(layout: BlueprintLayout | null): void {
     this.layout = layout
+    this.spriteLayers.clear()
     this.index = new SpatialIndex<EntityLayout>()
     for (const e of layout?.entities ?? []) this.index.insert(e.box, e)
     this.drawTiles()
@@ -125,6 +181,13 @@ export class Scene {
   /** Where entity icons come from; null shows footprints only (no game data). */
   setIconSource(source: IconSource | null): void {
     this.iconSource = source
+    this.invalidate()
+  }
+
+  /** Where entity sprites come from; null draws no sprites (no game data). */
+  setSpriteSource(source: SpriteSource | null): void {
+    this.spriteSource = source
+    this.spriteLayers.clear()
     this.invalidate()
   }
 
@@ -187,18 +250,29 @@ export class Scene {
       const { x, y, scale } = this.camera
       this.world.position.set(-x * scale, -y * scale)
       this.world.scale.set(scale)
-      this.arrows.visible = scale >= ARROW_MIN_SCALE
       this.drawGrid()
+      let withSprites = new Set<EntityLayout>()
+      let spriteMode = false
+      try {
+        ;[spriteMode, withSprites] = this.drawSprites()
+      } catch (error) {
+        // A bad sprite must never stop the rest of the frame from rendering.
+        console.error('Sprite rendering failed', error)
+        this.spriteSource = null
+        for (const pool of [this.groundSprites, this.shadowSprites, this.bodySprites])
+          this.finishPool(pool, 0)
+      }
+      this.drawDetail(spriteMode, withSprites)
       let withIcons = new Set<EntityLayout>()
       try {
-        withIcons = this.drawIcons()
+        withIcons = this.drawIcons(withSprites)
       } catch (error) {
         // A bad icon must never stop the rest of the frame from rendering.
         console.error('Icon rendering failed', error)
         this.iconSource = null
         for (const sprite of this.iconPool) sprite.visible = false
       }
-      this.drawLabels(withIcons)
+      this.drawLabels(withIcons, withSprites)
       this.app.render()
     })
   }
@@ -257,46 +331,119 @@ export class Scene {
       if (list) list.push(e)
       else byCategory.set(e.category, [e])
     }
-    for (const [category, list] of byCategory) {
-      for (const e of list) {
-        const b = e.box
-        body.rect(
-          b.left + INSET,
-          b.top + INSET,
-          b.right - b.left - 2 * INSET,
-          b.bottom - b.top - 2 * INSET
-        )
-      }
-      body.fill({ color: CATEGORY_COLORS[category], alpha: category === 'unknown' ? 0.8 : 0.9 })
-    }
+    for (const [category, list] of byCategory) fillFootprints(body, category, list)
+    strokeArrows(arrows, layout.entities)
+  }
 
-    // Small arrows at the leading edge of each footprint, so they stay visible
-    // on top of icons (which cover the centre). Light fill + dark outline reads
-    // on every category colour and on icons.
-    for (const e of layout.entities) {
-      if (!e.directional) continue
-      const { x, y } = directionVector(e.direction)
-      const w = e.box.right - e.box.left
-      const h = e.box.bottom - e.box.top
-      const r = Math.min(w, h) * 0.16
-      // Distance from the centre to the edge along the direction, minus a margin.
-      const reach = Math.min(
-        Math.abs(x) > 1e-9 ? w / 2 / Math.abs(x) : Infinity,
-        Math.abs(y) > 1e-9 ? h / 2 / Math.abs(y) : Infinity
-      )
-      const tipDistance = reach - INSET - r * 0.25
-      const cx = (e.box.left + e.box.right) / 2 + x * (tipDistance - r)
-      const cy = (e.box.top + e.box.bottom) / 2 + y * (tipDistance - r)
-      const px = -y
-      const py = x
-      arrows
-        .moveTo(cx + x * r, cy + y * r)
-        .lineTo(cx - x * r * 0.6 + px * r * 0.8, cy - y * r * 0.6 + py * r * 0.8)
-        .lineTo(cx - x * r * 0.6 - px * r * 0.8, cy - y * r * 0.6 - py * r * 0.8)
-        .closePath()
+  /**
+   * Draws sprites for visible entities that have graphics. Returns whether
+   * sprite mode is active (zoomed in, not too many entities) and which
+   * entities were drawn, so footprints, icons and labels skip them. An entity
+   * whose sheets are still loading keeps its footprint until they arrive.
+   */
+  private drawSprites(): [boolean, Set<EntityLayout>] {
+    const drawn = new Set<EntityLayout>()
+    const pools = [this.groundSprites, this.shadowSprites, this.bodySprites] as const
+    for (const pool of pools) pool.used = 0
+    const source = this.spriteSource
+    let active = false
+    if (source && this.layout && this.camera.scale >= SPRITE_MIN_SCALE) {
+      const view = visibleBox(this.camera, this.width, this.height)
+      const visible = this.index.query({
+        left: view.left - SPRITE_MARGIN,
+        top: view.top - SPRITE_MARGIN,
+        right: view.right + SPRITE_MARGIN,
+        bottom: view.bottom + SPRITE_MARGIN
+      })
+      if (visible.length <= MAX_SPRITE_ENTITIES) {
+        active = true
+        this.spriteTextures.beginFrame()
+        // Bodies in y order, so entities lower on screen overlap the ones behind.
+        visible.sort(
+          (a, b) => a.box.top + a.box.bottom - (b.box.top + b.box.bottom) || a.index - b.index
+        )
+        for (const e of visible) {
+          let layers = this.spriteLayers.get(e)
+          if (layers === undefined) {
+            layers = source(e)
+            this.spriteLayers.set(e, layers)
+          }
+          if (!layers || layers.length === 0) continue
+          const textures = layers.map((l) => this.spriteTextures.frame(l.url, l.rect))
+          if (textures.includes('loading')) continue
+          const cx = (e.box.left + e.box.right) / 2
+          const cy = (e.box.top + e.box.bottom) / 2
+          let any = false
+          layers.forEach((layer, i) => {
+            const texture = textures[i]!
+            if (texture === 'failed' || texture === 'loading') return
+            const pool = layer.ground ? pools[0] : layer.shadow ? pools[1] : pools[2]
+            const sprite = pool.sprites[pool.used] ?? this.createSprite(pool)
+            pool.used++
+            sprite.texture = texture
+            sprite.position.set(cx + layer.shift[0], cy + layer.shift[1])
+            sprite.scale.set(layer.scale / PX_PER_TILE_AT_SCALE_1)
+            sprite.tint = layer.tint ? rgb(layer.tint) : 0xffffff
+            sprite.alpha = layer.tint ? layer.tint[3] : 1
+            sprite.blendMode = layer.additive ? 'add' : 'normal'
+            sprite.visible = true
+            any = true
+          })
+          if (any) drawn.add(e)
+        }
+      }
     }
-    arrows.fill({ color: 0xf2f2f2, alpha: 0.95 })
-    arrows.stroke({ color: 0x000000, width: 1, pixelLine: true, alpha: 0.8 })
+    for (const pool of pools) this.finishPool(pool, pool.used)
+    return [active, drawn]
+  }
+
+  private createSprite(pool: SpritePool): Sprite {
+    const sprite = new Sprite()
+    sprite.anchor.set(0.5)
+    pool.container.addChild(sprite)
+    pool.sprites.push(sprite)
+    return sprite
+  }
+
+  /** Hides unused pool sprites and drops their textures (which may be evicted later). */
+  private finishPool(pool: SpritePool, used: number): void {
+    for (let i = used; i < pool.sprites.length; i++) {
+      const sprite = pool.sprites[i]!
+      if (!sprite.visible) continue
+      sprite.visible = false
+      sprite.texture = Texture.EMPTY
+    }
+  }
+
+  /**
+   * In sprite mode the static footprint path is hidden; footprints and arrows
+   * are drawn here for the visible entities without a sprite, plus arrows for
+   * inserters (their hand is not drawn yet, so the arrow shows the facing).
+   */
+  private drawDetail(spriteMode: boolean, withSprites: ReadonlySet<EntityLayout>): void {
+    const g = this.detail
+    const arrows = this.detailArrows
+    g.clear()
+    arrows.clear()
+    this.entities.visible = !spriteMode
+    this.arrows.visible = !spriteMode && this.camera.scale >= ARROW_MIN_SCALE
+    g.visible = spriteMode
+    arrows.visible = spriteMode
+    if (!spriteMode || !this.layout) return
+    const visible = this.index.query(visibleBox(this.camera, this.width, this.height))
+    const byCategory = new Map<EntityCategory, EntityLayout[]>()
+    const withArrows: EntityLayout[] = []
+    for (const e of visible) {
+      const sprite = withSprites.has(e)
+      if (!sprite) {
+        const list = byCategory.get(e.category)
+        if (list) list.push(e)
+        else byCategory.set(e.category, [e])
+      }
+      if (!sprite || e.category === 'inserter') withArrows.push(e)
+    }
+    for (const [category, list] of byCategory) fillFootprints(g, category, list)
+    strokeArrows(arrows, withArrows)
   }
 
   private drawSelection(): void {
@@ -328,14 +475,17 @@ export class Scene {
     })
   }
 
-  private drawLabels(withIcons: ReadonlySet<EntityLayout>): void {
+  private drawLabels(
+    withIcons: ReadonlySet<EntityLayout>,
+    withSprites: ReadonlySet<EntityLayout>
+  ): void {
     const { scale } = this.camera
     let used = 0
     if (this.layout && scale >= LABEL_MIN_SCALE) {
       const visible = this.index.query(visibleBox(this.camera, this.width, this.height))
       if (visible.length <= MAX_LABELS) {
         for (const e of visible) {
-          if (withIcons.has(e)) continue // the icon says what it is
+          if (withIcons.has(e) || withSprites.has(e)) continue // the picture says what it is
           const width = (e.box.right - e.box.left) * scale
           if (width < 40) continue // too small to hold text
           const label = this.labelPool[used] ?? this.createLabel()
@@ -354,7 +504,7 @@ export class Scene {
   }
 
   /** Draws icons for visible entities; returns the entities that got one. */
-  private drawIcons(): Set<EntityLayout> {
+  private drawIcons(withSprites: ReadonlySet<EntityLayout>): Set<EntityLayout> {
     const drawn = new Set<EntityLayout>()
     const source = this.iconSource
     let used = 0
@@ -362,6 +512,7 @@ export class Scene {
       const visible = this.index.query(visibleBox(this.camera, this.width, this.height))
       if (visible.length <= MAX_ICONS) {
         for (const e of visible) {
+          if (withSprites.has(e)) continue
           const url = source(e)
           const texture = url ? this.texture(url) : null
           if (!texture) continue
@@ -420,6 +571,61 @@ export class Scene {
     this.labelPool.push(label)
     return label
   }
+}
+
+function rgb([r, g, b]: readonly number[]): number {
+  return (Math.round(r! * 255) << 16) | (Math.round(g! * 255) << 8) | Math.round(b! * 255)
+}
+
+function fillFootprints(
+  g: Graphics,
+  category: EntityCategory,
+  list: readonly EntityLayout[]
+): void {
+  for (const e of list) {
+    const b = e.box
+    g.rect(
+      b.left + INSET,
+      b.top + INSET,
+      b.right - b.left - 2 * INSET,
+      b.bottom - b.top - 2 * INSET
+    )
+  }
+  g.fill({ color: CATEGORY_COLORS[category], alpha: category === 'unknown' ? 0.8 : 0.9 })
+}
+
+/**
+ * Small arrows at the leading edge of each footprint, so they stay visible on
+ * top of icons (which cover the centre). Light fill + dark outline reads on
+ * every category colour, on icons and on sprites.
+ */
+function strokeArrows(g: Graphics, entities: readonly EntityLayout[]): void {
+  let any = false
+  for (const e of entities) {
+    if (!e.directional) continue
+    const { x, y } = directionVector(e.direction)
+    const w = e.box.right - e.box.left
+    const h = e.box.bottom - e.box.top
+    const r = Math.min(w, h) * 0.16
+    // Distance from the centre to the edge along the direction, minus a margin.
+    const reach = Math.min(
+      Math.abs(x) > 1e-9 ? w / 2 / Math.abs(x) : Infinity,
+      Math.abs(y) > 1e-9 ? h / 2 / Math.abs(y) : Infinity
+    )
+    const tipDistance = reach - INSET - r * 0.25
+    const cx = (e.box.left + e.box.right) / 2 + x * (tipDistance - r)
+    const cy = (e.box.top + e.box.bottom) / 2 + y * (tipDistance - r)
+    const px = -y
+    const py = x
+    g.moveTo(cx + x * r, cy + y * r)
+      .lineTo(cx - x * r * 0.6 + px * r * 0.8, cy - y * r * 0.6 + py * r * 0.8)
+      .lineTo(cx - x * r * 0.6 - px * r * 0.8, cy - y * r * 0.6 - py * r * 0.8)
+      .closePath()
+    any = true
+  }
+  if (!any) return
+  g.fill({ color: 0xf2f2f2, alpha: 0.95 })
+  g.stroke({ color: 0x000000, width: 1, pixelLine: true, alpha: 0.8 })
 }
 
 function shortName(name: string): string {

@@ -1,6 +1,6 @@
 # Blueprint corpus
 
-Real blueprint strings used for round-trip and migration tests (see [implementation plan task 1.1](../../docs/plan/implementation-plan.md#11-corpus-first)).
+Real blueprint strings used for round-trip and migration tests.
 
 - One string per file, no trailing newline. `.gitattributes` marks these files `-text -diff`, so Git never rewrites line endings and does not try to diff them.
 - Vanilla 2.x strings sit at the top level. Strings from 1.1 go in [`legacy-1.1/`](legacy-1.1/). Strings that need mods go in [`modded/`](modded/).

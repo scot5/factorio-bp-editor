@@ -27,6 +27,29 @@ const raw = {
       ]
     }
   },
+  container: {
+    'wooden-chest': {
+      type: 'container',
+      name: 'wooden-chest',
+      collision_box: [
+        [-0.35, -0.35],
+        [0.35, 0.35]
+      ],
+      picture: {
+        layers: [
+          {
+            filename: '__base__/graphics/entity/wooden-chest/wooden-chest.png',
+            priority: 'extra-high',
+            width: 62,
+            height: 72,
+            shift: [0.015625, -0.0625],
+            scale: 0.5
+          }
+        ]
+      },
+      open_sound: { filename: '__base__/sound/open.ogg' }
+    }
+  },
   corpse: {
     'assembling-machine-2-remnants': {
       name: 'assembling-machine-2-remnants',
@@ -97,6 +120,22 @@ describe('buildPrototypeDb', () => {
     })
     expect(db.entities['splitter']).toMatchObject({ width: 2, height: 1 })
     expect(db.entities['assembling-machine-2-remnants']).toBeUndefined()
+  })
+
+  it('stores normalised graphics for covered types only', () => {
+    expect(db.entities['wooden-chest']!.graphics).toEqual([
+      {
+        node: {
+          kind: 'sprite',
+          file: '__base__/graphics/entity/wooden-chest/wooden-chest.png',
+          width: 62,
+          height: 72,
+          shift: [0.015625, -0.0625],
+          scale: 0.5
+        }
+      }
+    ])
+    expect(db.entities['splitter']!.graphics).toBeUndefined()
   })
 
   it('collects items of every item type', () => {
