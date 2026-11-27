@@ -1,14 +1,22 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain } from 'electron'
 import { readFile, stat, writeFile } from 'fs/promises'
 import { basename } from 'path'
-import { IpcChannel, MAX_BLUEPRINT_FILE_BYTES, type AppInfo, type OpenedFile } from '@core/ipc'
+import {
+  IpcChannel,
+  MAX_BLUEPRINT_FILE_BYTES,
+  type AppInfo,
+  type AssetStatus,
+  type OpenedFile
+} from '@core/ipc'
+import type { PrototypeDb } from '@core/prototypes'
+import type { AssetService } from './assets/service'
 
 const TEXT_FILTERS = [
   { name: 'Blueprint strings', extensions: ['txt'] },
   { name: 'All files', extensions: ['*'] }
 ]
 
-export function registerIpcHandlers(): void {
+export function registerIpcHandlers(assets: AssetService): void {
   ipcMain.handle(IpcChannel.AppGetInfo, (): AppInfo => ({
     appVersion: app.getVersion(),
     electronVersion: process.versions.electron,
@@ -48,6 +56,29 @@ export function registerIpcHandlers(): void {
       return true
     }
   )
+
+  ipcMain.handle(IpcChannel.AssetsGetStatus, (): AssetStatus => assets.getStatus())
+  ipcMain.handle(IpcChannel.AssetsLoad, (): Promise<AssetStatus> => assets.load())
+  ipcMain.handle(IpcChannel.AssetsGetDb, (): Promise<PrototypeDb | null> => assets.getDb())
+  ipcMain.handle(IpcChannel.AssetsChooseGamePath, async (event): Promise<boolean> => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const options = {
+      title: 'Select the Factorio folder (the one containing "data" and "bin")',
+      properties: ['openDirectory' as const]
+    }
+    const result = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options)
+    const path = result.filePaths[0]
+    if (result.canceled || !path) return false
+    return assets.setGamePath(path)
+  })
+  // Push status changes to every window.
+  assets.onStatus((status) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(IpcChannel.AssetsStatusChanged, status)
+    }
+  })
 
   ipcMain.handle(
     IpcChannel.ClipboardReadText,

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { Box, Position } from '@core/geometry'
 import type { BlueprintLayout, EntityLayout } from '@core/model'
 import { fitBox, screenToWorld, zoomAt, type Camera } from './camera'
-import { Scene } from './scene'
+import { Scene, type IconSource } from './scene'
 
 export interface CanvasHover {
   entity: EntityLayout
@@ -20,6 +20,8 @@ interface Props {
   onZoom(scale: number): void
   /** Incremented by the toolbar to request "fit to blueprint". */
   fitRequest: number
+  /** Entity icons from game data, or null for plain footprints. */
+  iconSource: IconSource | null
 }
 
 const DRAG_THRESHOLD = 4 // px before a press becomes a drag
@@ -31,7 +33,7 @@ const PAN_STEP = 0.15 // fraction of the view per arrow key press
  * pan, F fits. See docs/spec/04-visualization.md § Interaction (view mode).
  */
 export function BlueprintCanvas(props: Props): React.JSX.Element {
-  const { layout, selection, viewKey, fitRequest } = props
+  const { layout, selection, viewKey, fitRequest, iconSource } = props
   const hostRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<Scene | null>(null)
   const cameraRef = useRef<Camera>({ x: 0, y: 0, scale: 32 })
@@ -81,6 +83,10 @@ export function BlueprintCanvas(props: Props): React.JSX.Element {
   useEffect(() => {
     if (ready) sceneRef.current?.setSelection(selection)
   }, [ready, selection])
+
+  useEffect(() => {
+    if (ready) sceneRef.current?.setIconSource(iconSource)
+  }, [ready, iconSource])
 
   // ---------------------------------------------------------------------------
   // Pointer input

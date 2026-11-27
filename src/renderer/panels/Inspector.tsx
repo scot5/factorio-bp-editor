@@ -7,6 +7,7 @@ import {
   type EnvelopeNode
 } from '@core/model'
 import { CATEGORY_LABELS } from '../canvas/colors'
+import { Icon } from '../components/Icon'
 import { kindLabel } from '../components/kinds'
 import { RichText } from '../components/RichText'
 import type { OpenDocument } from '../store/documents'
@@ -58,7 +59,16 @@ function EntityDetails({ entity: e }: { entity: EntityLayout }): React.JSX.Eleme
       <div className="panel-title">Entity</div>
       <dl className="kv">
         <dt>Name</dt>
-        <dd className="font-medium">{e.entity.name}</dd>
+        <dd className="flex items-center gap-1.5 font-medium">
+          <Icon
+            kind="entity"
+            name={e.entity.name}
+            quality={e.entity.quality}
+            size={24}
+            fallback="none"
+          />
+          {e.entity.name}
+        </dd>
         <dt>Number</dt>
         <dd>{e.entity.entity_number}</dd>
         <dt>Position</dt>
@@ -89,7 +99,8 @@ function EntityDetails({ entity: e }: { entity: EntityLayout }): React.JSX.Eleme
         {e.entity.recipe && (
           <>
             <dt>Recipe</dt>
-            <dd>
+            <dd className="flex items-center gap-1.5">
+              <Icon kind="recipe" name={e.entity.recipe} size={16} fallback="none" />
               {e.entity.recipe}
               {e.entity.recipe_quality &&
                 e.entity.recipe_quality !== 'normal' &&
@@ -248,7 +259,10 @@ function CountList({ counts }: { counts: [string, number][] }): React.JSX.Elemen
     <ul className="m-0 px-3 pb-3 text-[12px]">
       {counts.map(([name, count]) => (
         <li key={name} className="flex list-none justify-between gap-2 py-px">
-          <span className="truncate">{name}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <Icon kind="entity" name={name} size={16} fallback="none" />
+            <span className="truncate">{name}</span>
+          </span>
           <span className="font-mono text-ink-muted">{count}</span>
         </li>
       ))}

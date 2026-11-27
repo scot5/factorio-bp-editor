@@ -34,7 +34,12 @@ factorio.exe --dump-icon-sprites  → <write-data>/script-output/{item,entity,re
 - `--dump-data` writes the complete final `data.raw` after all mods load, including sprite definitions, collision boxes, recipes, crafting speeds, energy usage and so on. This is the single source of truth.
 - `--dump-icon-sprites` renders every icon with its layers, tints and mipmaps already combined. Use these PNGs for icons instead of combining icon layers by hand.
 - The write-data directory depends on `config-path.cfg` (`use-system-read-write-data-directories`). Steam installs use `%APPDATA%\Factorio`. Read `config-path.cfg` and `config/config.ini` to find it.
-- Both commands run headless and exit. They need no running game, but they **fail if the game is already running**. Detect that case and show "close Factorio and retry".
+- Both commands exit when done (`--dump-data` takes about 9 s and `--dump-icon-sprites` about 15 s on the 2.1.25 reference install). They **fail if the game is already running**: the output contains "Couldn't create lock file … Is another instance already running?". Detect that case and show "close Factorio and retry".
+- **Steam builds:** `--dump-icon-sprites` needs graphics and starts the Steam API. Started outside Steam, the game prints "Steam requires game restart, restarting…", exits immediately, and Steam starts a detached copy about 30 s later. That copy does run the dump, but it holds the lock and cannot be waited on. Set `SteamAppId=427520` (and `SteamGameId`) in the **child process's** environment to prevent this. Never create `steam_appid.txt` in the user's install. `--dump-data` is headless and is not affected.
+- `--dump-icon-sprites` writes one 64×64 RGBA PNG per prototype to `script-output/<category>/<name>.png`. The categories are `item`, `entity`, `recipe`, `fluid`, `virtual-signal`, `tile`, `quality`, `technology`, `space-location`, `item-group`, `equipment`, `asteroid-chunk`, `achievement`, `decorative`, and others. That is about 2,700 files and 30 MB in total.
+- The app starts the game **only when the user clicks "Load game data"**. At startup it only reads files: it detects the install and looks for a matching cache.
+
+Implementation: `src/main/assets/` (`locate.ts`, `factorio.ts`, `service.ts`, `protocol.ts`). Pure parsing lives in `src/core/assets/`, and the DB builder in `src/core/prototypes/db.ts`. The cache key is `<game version>-<sha1 of enabled mods and versions>-f<DB_FORMAT_VERSION>`, so changing mods or the DB format makes the app offer to reload. The "vanilla + expansions only" option is not built yet.
 - Mods: by default the dump uses the user's current `mod-list.json`. Offer "vanilla + expansions only" as an option, implemented by passing a temporary `--mod-directory` with a generated `mod-list.json`.
 
 The main process then processes the dump into a compact **PrototypeDb**, cached in `prototype-cache/<version>-<modsHash>/`:
@@ -68,6 +73,11 @@ Rebuild the cache when the game version or mod set changes, or when the user ask
 ## Graphics
 
 ### Asset protocol
+
+Implemented in `src/main/assets/protocol.ts`, with URL building and parsing in `src/core/assets/asset-url.ts`.
+- **URL forms:** `factorio-asset://icons/<category>/<name>.png` for the icon cache, and `factorio-asset://data/<mod>/<path>` for the install's `data/<mod>` folder. Mod zips are not supported yet.
+- **CORS:** the scheme is registered as standard, secure and CORS-enabled, and responses carry `Access-Control-Allow-Origin: *`. This is required because the page has a different origin, and WebGL refuses to upload images without CORS ("The image element contains cross-origin data"). Images used as textures must set `crossOrigin = 'anonymous'`.
+- **Path safety:** the URL parser rejects `..`, `.`, empty segments, encoded `/` and `\`, `:`, NUL and query strings. The handler then resolves the path and checks it stays inside the root, both before and after `realpath`, so symlinks and junctions cannot escape. Both checks are tested.
 
 The main process registers `factorio-asset://` and maps:
 

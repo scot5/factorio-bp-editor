@@ -37,6 +37,7 @@ pnpm format             # Prettier (Markdown is excluded)
 pnpm build              # typecheck + electron-vite build
 pnpm build:win          # + electron-builder NSIS installer
 pnpm gen:sizes --dump   # regenerate src/core/generated/entity-sizes.ts (Factorio closed; set FACTORIO_PATH)
+FBE_E2E_GAME=1 pnpm test:e2e   # also run the e2e test that loads real game data (Factorio installed and closed)
 ```
 
 Before you call a task done, run `typecheck`, `lint` and `test`. Also run `test:e2e` when you touch main, preload or the renderer.
@@ -47,6 +48,8 @@ Before you call a task done, run `typecheck`, `lint` and `test`. Also run `test:
 - `src/main/security.ts`: the only place window `webPreferences` are built.
 - `src/core/ipc.ts`: IPC channel names and the `BridgeApi` type. To add an IPC call, add it to `ipc.ts`, then a handler in `src/main`, then the preload mapping.
 - `src/renderer`: React app (`@renderer/*`). Entry is `index.html` → `main.tsx`.
+- `src/main/assets`: game install detection, the dump runner, the cache and the `factorio-asset://` protocol. Never start the game except from the user's "Load game data" action.
+- E2E tests launch the app with `tests/e2e/launch.ts`, which uses a fresh `FBE_USER_DATA` folder, so tests never touch the real settings or cache.
 
 ## Architecture rules
 

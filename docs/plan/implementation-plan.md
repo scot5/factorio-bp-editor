@@ -156,6 +156,15 @@ Goal: paste a string and see it laid out as footprint boxes with names, inside a
 
 M3 steps 1–4 have no UI dependency and can start alongside M2.
 
+**Status: steps 1–6 done** (branch `m3-game-assets`). Step 7, sprites, is next.
+- **Detection and DB:** Steam library detection and write-data resolution from `config-path.cfg` and `config.ini`. The dump runner sets `SteamAppId` (see spec 03). The PrototypeDb contains entities with sizes and boxes, items, recipes, fluids, signals, qualities, tiles and icon lists. The cache is keyed by version, mods and format.
+- **Protocol:** the `factorio-asset://` protocol has path-traversal and symlink tests.
+- **UI:** a status bar control with Locate, "Load game data", progress and errors. Game icons appear in rich text, the book tree (blueprint icons), the inspector, the tooltip and on canvas footprints. Direction arrows moved to the footprint edge so they stay visible on top of icons.
+- **Changed from the original plan:**
+  - No separate icon atlas. Icons load lazily per URL, and each distinct icon becomes one texture. A typical blueprint has only a few dozen distinct icons, so batching is fine. Revisit if profiling says otherwise.
+  - Types are not yet generated from `prototype-api.json`. The DB is hand-typed and small, so generation will come with the sprite definitions in step 7.
+- **Tests:** unit tests for the parsers, the DB builder, URLs and path resolution, plus `tests/e2e/game-data.spec.ts`. That e2e test is opt-in (`FBE_E2E_GAME=1`), because it runs the real game.
+
 ## M4–M7: Outline
 
 - **M4 Analysis** ([06](../spec/06-analysis.md)): set up the Web Worker. Build the reports in this order: inventory and bill of materials → power → production rates → validation → logistics → circuits → diff. Pick a few corpus blueprints with known ratios (for example a textbook green-circuit build) as golden tests.

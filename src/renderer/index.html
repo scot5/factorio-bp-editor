@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <title>Factorio Blueprint Editor</title>
-    <!-- See docs/spec/01-architecture.md § Security. Extend img-src with factorio-asset: in M3. -->
+    <!-- See docs/spec/01-architecture.md § Security. Game images come only from factorio-asset:. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: factorio-asset:; object-src 'none'; base-uri 'none'"
     />
   </head>
 

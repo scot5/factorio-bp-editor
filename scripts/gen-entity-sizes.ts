@@ -19,6 +19,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { NOT_BLUEPRINTABLE_TYPES, tileSizeOf } from '../src/core/prototypes/blueprintable.ts'
 
 const args = process.argv.slice(2)
 const argValue = (flag: string): string | undefined => {
@@ -63,8 +64,6 @@ type Prototype = {
   tile_height?: number
 }
 
-const xy = (v: Vec): [number, number] => (Array.isArray(v) ? v : [v.x, v.y])
-
 const raw = JSON.parse(readFileSync(dumpFile, 'utf8')) as Record<string, Record<string, Prototype>>
 
 const baseInfo = factorioPath ? join(factorioPath, 'data', 'base', 'info.json') : undefined
@@ -73,59 +72,13 @@ const version =
     ? (JSON.parse(readFileSync(baseInfo, 'utf8')) as { version: string }).version
     : 'unknown'
 
-/** Prototype types that can never be in a blueprint (decoratives, corpses, enemies, projectiles, …). */
-const NOT_BLUEPRINTABLE = new Set([
-  'optimized-decorative',
-  'corpse',
-  'rail-remnants',
-  'segment',
-  'segmented-unit',
-  'simple-entity',
-  'tree',
-  'plant',
-  'fish',
-  'asteroid',
-  'resource',
-  'cliff',
-  'unit',
-  'unit-spawner',
-  'turret', // worms; player turrets are ammo-, electric-, fluid- and artillery-turret
-  'spider-unit',
-  'spider-leg',
-  'character',
-  'combat-robot',
-  'construction-robot',
-  'logistic-robot',
-  'capture-robot',
-  'projectile',
-  'rocket-silo-rocket',
-  'rocket-silo-rocket-shadow',
-  'cargo-pod',
-  'temporary-container',
-  'item-entity',
-  'item-request-proxy',
-  'tile-ghost',
-  'deconstructible-tile-proxy',
-  'armor'
-])
-
 const sizes: Record<string, [string, number, number]> = {}
 for (const [type, prototypes] of Object.entries(raw)) {
-  if (NOT_BLUEPRINTABLE.has(type)) continue
+  if (NOT_BLUEPRINTABLE_TYPES.has(type)) continue
   for (const proto of Object.values(prototypes)) {
     if (!proto.collision_box && proto.tile_width === undefined) continue
-    let width = proto.tile_width
-    let height = proto.tile_height
-    if ((width === undefined || height === undefined) && proto.collision_box) {
-      const [[x1, y1], [x2, y2]] = proto.collision_box.map(xy) as [
-        [number, number],
-        [number, number]
-      ]
-      // Collision boxes are slightly smaller than the tiles they occupy (e.g. ±1.2 for 3×3).
-      width ??= Math.max(1, Math.ceil(x2 - x1 - 1e-6))
-      height ??= Math.max(1, Math.ceil(y2 - y1 - 1e-6))
-    }
-    sizes[proto.name] = [type, width ?? 1, height ?? 1]
+    const { width, height } = tileSizeOf(proto)
+    sizes[proto.name] = [type, width, height]
   }
 }
 
