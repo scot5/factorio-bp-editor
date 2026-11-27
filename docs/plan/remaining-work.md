@@ -6,6 +6,12 @@ Read in this order: [CLAUDE.md](../../CLAUDE.md) → this file → the [spec](..
 
 Snapshot date: 2026-11-27. `main` at `13fbfae` (PR #2 merged), plus this plan (#3) and M3 step 7a (#4) in review.
 
+**Start here (next agent):**
+1. Check that GitHub PRs #3 and #4 are merged (`gh pr list --state all --limit 5`). #4 is stacked on #3. If either is still open, wait for the user; don't start the next step on top of unmerged work unless the user says so.
+2. `git checkout main && git pull`, then branch for **plan PR 4 (M3 step 7b: belts, undergrounds, splitters, pipes, heat pipes, walls)** in §5.
+3. Plan PR numbers in §5 are *plan step* numbers, not GitHub PR numbers. GitHub numbers run ahead (the plan itself took #3, so step "PR 3" became GitHub #4). Name both in the PR body.
+4. Read spec 03 § Sprite definitions first: it documents the sprite resolver that 7b extends.
+
 ---
 
 ## 1. How to work in this repo
@@ -84,13 +90,20 @@ Tests: 572 unit tests, 8 e2e tests, and 1 opt-in e2e test (`FBE_E2E_GAME=1`, loa
 - **Shell pitfalls seen this session:**
   - Multi-line `sed` and heredoc JS replacements broke on escaping several times. Prefer the Edit tool for code edits.
   - Never write temp files to `/` or root paths. Use the session scratchpad (the harness gives its path).
+  - A Bash heredoc that feeds a long Python patch script failed with "unexpected EOF" (quoting). Write the script to a scratchpad file with the Write tool, then run it.
+  - **Python on Windows writes CRLF** in text mode. The repo is LF. Use `open(p, 'w', encoding='utf8', newline='')`, or fix afterwards with `sed -i 's/\r$//' <file>`. Git warns "CRLF will be replaced by LF" when this happened.
+  - `pnpm exec prettier --write` reformats files you edited; re-read a file before using Edit on it again.
 
 ## 4. Useful techniques
 
 - **Screenshots of the real app:** write a throwaway `tests/e2e/_shot.spec.ts` that calls `launchApp(<scratchpad>/ud)`, imports a corpus string through the dialog, and calls `page.screenshot({ path: <scratchpad>/x.png })`. Run `pnpm exec electron-vite build` first, then `pnpm exec playwright test tests/e2e/_shot.spec.ts`, read the PNG, and **delete the spec** before committing. Reusing the same scratch user-data folder keeps loaded game data between runs, so you load once and screenshot many times.
 - **Console errors from the renderer:** in the same kind of spec, use `page.on('pageerror')` and `page.on('console')`. This is how the CORS bug was found.
 - **Game as an oracle:** for format questions, ask the user to import or export something in the game. `tests/corpus/legacy-1.1/upgraded/` holds the game's own upgrade of the 1.1 strings, and `tests/unit/migrate-oracle.test.ts` compares against it. Use the same approach for task 1.6.
-- **Inspecting the dump:** `node -e "const d=require(process.argv[1]); …" "$APPDATA/Factorio/script-output/data-raw-dump.json"`, with types at `d[type][name]`.
+- **Inspecting the dump:** `node -e "const d=require(process.argv[1]); …" "$APPDATA/Factorio/script-output/data-raw-dump.json"`, with types at `d[type][name]`. For graphics, a small script that prints each property with sprite leaves collapsed to `LEAF(file WxH fc ll dc …)` gives a readable overview of a type in one screen. PNG sizes can be read from bytes 16–23 of the file header (`readUInt32BE(16)` / `(20)`) to confirm sheet layouts.
+- **Whole-dump resolver check (used in 7a):** a temporary `src/core/sprites/_dump-check.test.ts` (run with `pnpm exec vitest run <file> --silent=false`) that builds the DB from the real dump, resolves every covered prototype in 8 directions and checks each `rect` lies inside its PNG (reading the header from the install). It found nothing wrong in 7a, but it's the fastest way to validate a new shape rule. Delete it before committing; it depends on the local install.
+- **Synthetic blueprints for screenshots:** in the `_shot` spec, build `{ blueprint: { item: 'blueprint', entities, version: 562954250027018 } }`, `encode()` it with `src/core/codec`, and import it. Placing each type in a row at directions 0/4/8/12 checks every facing at once, including types the corpus lacks.
+- **Zoom and sprite mode:** sprite mode starts at 16 px/tile (zoom 25 % in the status bar). After "Fit", each wheel step multiplies the zoom by about 1.2; on a large blueprint you need 7–10 steps before sprites show. Check the zoom % in the screenshot before judging it.
+- **Performance with game data:** in the `_shot` spec, import `legacy-1.1/self_building_rocket_book.txt`, open "Step 7", zoom in, then record `requestAnimationFrame` intervals while panning (copy the loop from `tests/e2e/viewer.spec.ts`). 7a baseline: 7.0 ms median (the 144 Hz display cap). The scratch user-data folder `<scratchpad>/ud` keeps loaded game data between runs, but the scratchpad is per session, so the first run in a new session loads game data again (Factorio must be closed).
 
 ## 5. Remaining work, PR by PR
 
@@ -115,7 +128,7 @@ Real game graphics for entities whose look depends only on their own direction. 
 - **Pipes:** `pictures` keys such as `straight_vertical`, `corner_up_right`, `t_down`, `cross` and `ending_*`. Pick them from the 4 neighbour connections. A full solution needs fluid box connection points from the prototypes (`fluid_boxes[].pipe_connections`); a first version can connect pipe to pipe plus anything with a fluid box on the touching side.
 - **Heat pipes:** same idea, with `connection_sprites`.
 - **Walls:** `pictures` has `single`, `straight_vertical`, `corner_*`, `t_up`, `ending_*` and `filling`, chosen from wall and gate neighbours. 7a draws `single` for every wall.
-- **Resolver input:** today the renderer calls `resolveGraphics(parts, direction)` once per prototype and direction (`canvas/sprite-source.ts`). Neighbour-aware shapes need a per-entity call with the neighbour query, and a cache key that includes the chosen shape.
+- **Resolver input:** today the renderer calls `resolveGraphics(parts, direction)` once per prototype and direction (`canvas/sprite-source.ts`). Neighbour-aware shapes need a per-entity call with the neighbour query, and a cache key that includes the chosen shape. The scene already calls the `SpriteSource` once per `EntityLayout` and caches the result until the layout changes (`spriteLayers` in `scene.ts`), so a source that takes the whole layout (built in `spriteSourceFor`, with a tile index of the blueprint) fits without scene changes. Belts, splitters and pipes are not in `EXTRACTORS` yet; they need their own extractor entries plus the shape selection.
 - Add a neighbour query (spatial index by tile) to the resolver input.
 
 ### PR 5: M3 step 7c, rails, signals and rolling stock
