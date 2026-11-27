@@ -212,9 +212,7 @@ describe('migrate1to2', () => {
       [1, 5, 2, 5],
       [1, 6, 3, 5]
     ])
-    expect(result.notes.map((n) => n.message)).toContainEqual(
-      expect.stringContaining('Power switch')
-    )
+    expect(result.notes).toEqual([])
   })
 
   it('converts item requests to insert plans', () => {
@@ -238,10 +236,18 @@ describe('migrate1to2', () => {
           name: 'modded-machine',
           position: { x: 20.5, y: 0.5 },
           items: { 'speed-module': 2 }
+        },
+        {
+          entity_number: 4,
+          name: 'gun-turret',
+          position: { x: 30, y: 0 },
+          items: { 'piercing-rounds-magazine': 10 }
         }
       ])
     )
-    const [asm, loco, modded] = entitiesOf((result.envelope as { blueprint: JsonObject }).blueprint)
+    const [asm, loco, modded, turret] = entitiesOf(
+      (result.envelope as { blueprint: JsonObject }).blueprint
+    )
     expect(asm!['items']).toEqual([
       { id: { name: 'efficiency-module' }, items: { in_inventory: [{ inventory: 4, stack: 0 }] } },
       { id: { name: 'speed-module' }, items: { in_inventory: [{ inventory: 4, stack: 1 }] } }
@@ -253,9 +259,17 @@ describe('migrate1to2', () => {
       }
     ])
     expect(modded!['items']).toEqual({ 'speed-module': 2 }) // unknown inventory: left as is
-    const messages = result.notes.map((n) => n.message)
-    expect(messages).toContainEqual(expect.stringContaining('unverified inventory ids'))
-    expect(messages).toContainEqual(expect.stringContaining('"modded-machine"'))
+    expect(turret!['items']).toEqual([
+      {
+        id: { name: 'piercing-rounds-magazine' },
+        items: { in_inventory: [{ inventory: 1, stack: 0, count: 10 }] }
+      }
+    ])
+    // Verified entities (assembler, locomotive) produce no notes; the others do.
+    expect(result.notes.map((n) => n.message)).toEqual([
+      'Item requests on "modded-machine" were kept in the 1.1 format (unknown inventory).',
+      'Item requests on "gun-turret" were converted with an unverified inventory id.'
+    ])
   })
 
   it('wraps 1.1 schedule record lists', () => {
@@ -312,10 +326,16 @@ describe('migrate1to2', () => {
     expect(validateEnvelope(out)).toEqual([])
   })
 
-  it('notes 1.1 rails', () => {
+  it('turns 1.1 rails into legacy rails, as the game does', () => {
     const result = migrate1to2(
-      legacy([{ entity_number: 1, name: 'curved-rail', position: { x: 0, y: 0 }, direction: 3 }])
+      legacy([
+        { entity_number: 1, name: 'curved-rail', position: { x: 0, y: 0 }, direction: 3 },
+        { entity_number: 2, name: 'straight-rail', position: { x: 9, y: 1 }, direction: 2 }
+      ])
     )
-    expect(result.notes.map((n) => n.message)).toContainEqual(expect.stringContaining('rails'))
+    const [curved, straight] = entitiesOf((result.envelope as { blueprint: JsonObject }).blueprint)
+    expect([curved!['name'], curved!['direction']]).toEqual(['legacy-curved-rail', 6])
+    expect([straight!['name'], straight!['direction']]).toEqual(['legacy-straight-rail', 4])
+    expect(result.renamed.get('curved-rail')).toEqual({ to: 'legacy-curved-rail', count: 1 })
   })
 })

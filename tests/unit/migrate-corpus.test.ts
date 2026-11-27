@@ -5,8 +5,8 @@ import { migrate1to2, needsMigration, RENAME_STEPS } from '@core/migrate'
 import { loadCorpus } from './corpus'
 
 const corpus = loadCorpus()
-const legacy = corpus.filter((f) => f.name.startsWith('legacy-1.1/'))
-const current = corpus.filter((f) => !f.name.startsWith('legacy-1.1/'))
+const legacy = corpus.filter((f) => f.category === 'legacy')
+const current = corpus.filter((f) => f.category !== 'legacy')
 
 /** Every name a 1.1 string may contain that 2.x renamed. */
 const OLD_NAMES = new Set(RENAME_STEPS.slice(1).flatMap((s) => Object.keys(s.renames)))
@@ -42,13 +42,10 @@ describe('1.1 → 2.x migration on the legacy corpus', () => {
     })
 
     it('produces only matching-colour wires', () => {
-      // Connector 6 is the (unverified) power switch right copper connector
-      // assumed by the migration; wireColor deliberately does not know it yet.
-      const colour = (c: number): string | null => wireColor(c) ?? (c === 6 ? 'copper' : null)
       for (const node of findAll(out, 'blueprint')) {
         for (const [, ca, , cb] of (node.payload as Blueprint).wires ?? []) {
-          expect(colour(ca)).not.toBeNull()
-          expect(colour(ca)).toBe(colour(cb))
+          expect(wireColor(ca)).not.toBeNull()
+          expect(wireColor(ca)).toBe(wireColor(cb))
         }
       }
     })

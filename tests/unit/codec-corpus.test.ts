@@ -18,10 +18,10 @@ function referenceDecode(text: string): unknown {
 describe('blueprint corpus', () => {
   it('has the expected number of strings', () => {
     // Update when strings are added to tests/corpus (and describe them in its README).
-    expect(corpus.length).toBe(27)
+    expect(corpus.length).toBe(30)
   })
 
-  describe.each(corpus)('$name', ({ name, text }) => {
+  describe.each(corpus)('$name', ({ category, text }) => {
     it('decodes to the same JSON as the reference decoder', () => {
       expect(decode(text)).toStrictEqual(referenceDecode(text))
     })
@@ -38,7 +38,7 @@ describe('blueprint corpus', () => {
 
     it('has a readable game version', () => {
       const version = unpackVersion(rootPayload(decode(text))['version'] as number)
-      const expectedMajor = name.startsWith('legacy-1.1/') ? 1 : 2
+      const expectedMajor = category === 'legacy' ? 1 : 2
       expect(version.major).toBe(expectedMajor)
       expect(rootKind(decode(text))).toMatch(
         /^(blueprint|blueprint_book|deconstruction_planner|upgrade_planner)$/

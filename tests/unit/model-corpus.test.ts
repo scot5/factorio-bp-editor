@@ -14,9 +14,9 @@ import { directionOf, isOnGrid } from '@core/geometry'
 import { loadCorpus } from './corpus'
 
 const corpus = loadCorpus().map((file) => ({ ...file, envelope: decode(file.text) }))
-const isLegacy = (name: string): boolean => name.startsWith('legacy-1.1/')
+const isLegacy = (category: string): boolean => category === 'legacy'
 
-describe.each(corpus)('$name', ({ name, envelope }) => {
+describe.each(corpus)('$name', ({ category, envelope }) => {
   it('validates without issues', () => {
     const issues = validateEnvelope(envelope).map(
       (i) => `${i.severity} ${formatIssuePath(i.path)}: ${i.message}`
@@ -46,7 +46,7 @@ describe.each(corpus)('$name', ({ name, envelope }) => {
     }
   })
 
-  it.skipIf(isLegacy(name))(
+  it.skipIf(isLegacy(category))(
     'wire connectors pair up by colour (confirms the connector ids)',
     () => {
       for (const node of findAll(envelope, 'blueprint')) {
@@ -72,8 +72,8 @@ describe('corpus-wide facts used by geometry', () => {
       'transport-belt': { width: 1, height: 1 }
     }
     let checked = 0
-    for (const { name, envelope } of corpus) {
-      if (isLegacy(name)) continue
+    for (const { name, category, envelope } of corpus) {
+      if (isLegacy(category)) continue
       for (const node of findAll(envelope, 'blueprint')) {
         for (const entity of (node.payload as Blueprint).entities ?? []) {
           const size = sizes[entity.name]

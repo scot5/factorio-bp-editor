@@ -95,7 +95,8 @@ Connector ids, as **confirmed from the 2.1.25 corpus** (see `tests/corpus/README
 | 3 | Combinator **output** red | arithmetic and decider combinators |
 | 4 | Combinator **output** green | arithmetic and decider combinators |
 | 5 | Copper (pole) | electric poles, substations |
-| ? | Power switch left and right copper | not yet in the corpus. Confirm before implementing power switch wiring. |
+| 5 | Power switch **left** copper (same id as pole copper) | confirmed from the game's upgrade of 1.1 power switches |
+| 6 | Power switch **right** copper | confirmed from the game's upgrade of 1.1 power switches |
 
 The names come from `defines.wire_connector_id` in `runtime-api.json`. That file's `order` field is display order, not the numeric value, so never derive the ids from it.
 
@@ -152,12 +153,22 @@ JSON parsing notes for round-trip:
 
 Implementation: `src/core/migrate` (`migrate1to2` returns the migrated copy, a list of renames and notes for the UI).
 
-**Not verified yet:**
-- inventory ids for converted `items` (modules, fuel, ammo);
-- power switch copper connectors (`Cu0` / `Cu1` → 5 / 6);
-- how 1.1 `straight-rail` / `curved-rail` map onto 2.0 rail pieces. They are kept as-is for now.
+**Verified against the game.** `tests/corpus/legacy-1.1/upgraded/` holds the three 1.1 corpus strings after the game imported and re-exported them (2.1.25). `tests/unit/migrate-oracle.test.ts` checks our migration against them:
+- entity names, positions and directions;
+- every wire, including power switches (`Cu0` / `Cu1` → 5 / 6);
+- module and fuel totals;
+- `use_filters`;
+- upgrade planners.
 
-These are reported as migration notes. Verify them against the same strings imported into the game and re-exported. **Not migrated:** `control_behavior` and other settings whose format changed in 2.0 (for example combinator conditions). They are kept verbatim, so nothing is lost, but analysis may not understand them.
+What the game does on import:
+- 1.1 `straight-rail` / `curved-rail` become the separate `legacy-straight-rail` / `legacy-curved-rail` prototypes (direction ×2). We do the same.
+- It **deletes entities whose settings reference prototypes 2.0 no longer has** (for example the removed `rocket-control-unit` recipe, or 0.14-era item names such as `uranium-rifle-magazine`), and shows an import error without details. We keep them (lossless) and analysis reports them (`unknown-prototype`, spec 06).
+- It **drops copper wires longer than the shorter reach of their two poles**. We keep them and analysis reports `wire-out-of-reach`.
+- It strips modules from machines without module slots, splits fuel into stacks of the item's stack size, and fills in defaults (`recipe_quality: "normal"`, `quality` / `comparator` on filters). These need prototype data and are left to analysis and export (M3/M4).
+
+**Still unverified:** inventory ids for entities with item requests that are not in the legacy corpus (mining drills, burner entities, turrets). These are reported as migration notes.
+
+**Not migrated yet:** `control_behavior`, request filters and other settings whose format changed in 2.0 (for example decider conditions → `conditions` / `outputs`, constant combinator and requester filters → `sections`, `circuit_enabled`). They are kept verbatim, so nothing is lost, but analysis may not understand them. See plan task 1.6.
 
 After migration, the blueprint is stamped with the current game version. The UI SHOULD show a "migrated from 1.1" notice.
 

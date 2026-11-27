@@ -14,21 +14,24 @@ import { renameFrom1_1 } from './renames'
  * Migrates a 1.x blueprint envelope to the 2.x format.
  * See docs/spec/02-blueprint-format.md § Version handling and plan task 1.5.
  *
- * Certain (from the game's migration files or confirmed formats):
- * - prototype renames (renames.ts)
+ * Verified against the game's own upgrade of the same strings
+ * (tests/corpus/legacy-1.1/upgraded, checked by migrate-oracle.test.ts):
+ * - prototype renames (renames.ts), plus 1.1 rails → legacy-straight-rail / legacy-curved-rail
  * - 8-way → 16-way directions
- * - per-entity `connections` / `neighbours` → top-level `wires`
+ * - per-entity `connections` / `neighbours` → top-level `wires` (incl. power switches)
  * - train schedules: record list → `{ records }`
  * - former filter inserters get `use_filters: true`
+ * - module inventories of assembling machines, chemical plants, rocket silos, labs, beacons;
+ *   fuel inventory of locomotives
  *
- * UNVERIFIED (marked with ⚠ below, and reported as notes):
- * - inventory ids for converted `items` (modules, fuel, ammo)
- * - power switch copper connector ids
- * - 1.1 rails, which do not map onto 2.0 rail pieces
- * Compare against blueprints re-exported by the game before relying on them.
+ * UNVERIFIED (marked with ⚠ below, and reported as notes): the other inventory
+ * ids in ITEM_INVENTORY, and fuel/ammo stack splitting (needs stack sizes).
  *
- * Not migrated (kept as-is): `control_behavior` and other entity settings whose
- * format changed in 2.0. They are preserved verbatim, so nothing is lost.
+ * Not migrated (kept as-is): `control_behavior`, request filters, and other
+ * settings whose format changed in 2.0. They are preserved verbatim, so nothing
+ * is lost. The game also drops entities that reference prototypes 2.0 no longer
+ * has (e.g. the `rocket-control-unit` recipe); we keep them, and analysis flags
+ * them as unknown.
  */
 
 export interface MigrationNote {
@@ -149,10 +152,10 @@ function migrateBlueprint(blueprint: JsonObject, ctx: Context): void {
   for (const entity of entities) {
     if (!isJsonObject(entity)) continue
     migrateDirection(entity)
-    collectWires(entity, wires, ctx)
+    collectWires(entity, wires)
     migrateItems(entity, ctx)
     migrateFilterInserter(entity)
-    noteLegacyRail(entity, ctx)
+    migrateRail(entity, ctx)
   }
 
   if (wires.size > 0) {
@@ -226,12 +229,15 @@ function circuitConnector(point: number, color: 'red' | 'green'): number {
 }
 
 /**
- * ⚠ UNVERIFIED: power switch copper connectors. 1.1 used "Cu0" (left) and
- * "Cu1" (right). Assumed to be 5 and 6 in 2.x (5 is confirmed for pole copper).
+ * Power switch copper connectors: 1.1 "Cu0" (left) and "Cu1" (right) become
+ * 5 and 6. Verified against the game's upgrade of the mall's power switches.
  */
-const POWER_SWITCH_COPPER = [5, 6] as const
+const POWER_SWITCH_COPPER = [
+  WireConnectorId.PoleCopper,
+  WireConnectorId.PowerSwitchRightCopper
+] as const
 
-function collectWires(entity: JsonObject, wires: WireSet, ctx: Context): void {
+function collectWires(entity: JsonObject, wires: WireSet): void {
   const self = entity['entity_number']
   if (typeof self !== 'number') return
 
@@ -249,7 +255,6 @@ function collectWires(entity: JsonObject, wires: WireSet, ctx: Context): void {
   if (!isJsonObject(connections)) return
   for (const [point, value] of Object.entries(connections)) {
     if (point === 'Cu0' || point === 'Cu1') {
-      note(ctx, 'Power switch copper wires were converted with unverified connector ids.')
       const own = POWER_SWITCH_COPPER[point === 'Cu0' ? 0 : 1]
       for (const target of Array.isArray(value) ? value : []) {
         if (!isJsonObject(target) || typeof target['entity_id'] !== 'number') continue
@@ -283,10 +288,9 @@ function collectWires(entity: JsonObject, wires: WireSet, ctx: Context): void {
 // Items: 1.1 `{ name: count }` → 2.x insert plans
 
 /**
- * ⚠ UNVERIFIED except where noted: the inventory that 1.1 item requests go
- * into, per vanilla entity. Values follow `defines.inventory`.
- * Confirmed from the 2.x corpus: assembling machine modules = 4, electric
- * furnace modules = 4, locomotive fuel = 1.
+ * The inventory that 1.1 item requests go into, per vanilla entity
+ * (`defines.inventory` values). Entities in VERIFIED_ITEM_INVENTORY were
+ * checked against the game's own upgrade; ⚠ the others are not verified yet.
  */
 const ITEM_INVENTORY: Readonly<Record<string, number>> = {
   // Crafting machine modules (assembling_machine_modules / furnace_modules = 4)
@@ -318,6 +322,15 @@ const ITEM_INVENTORY: Readonly<Record<string, number>> = {
   'artillery-wagon': 1
 }
 
+const VERIFIED_ITEM_INVENTORY: ReadonlySet<string> = new Set([
+  'assembling-machine-2',
+  'chemical-plant',
+  'rocket-silo',
+  'lab',
+  'beacon',
+  'locomotive'
+])
+
 function migrateItems(entity: JsonObject, ctx: Context): void {
   const items = entity['items']
   if (!isJsonObject(items)) return // absent, or already insert plans
@@ -327,7 +340,9 @@ function migrateItems(entity: JsonObject, ctx: Context): void {
     note(ctx, `Item requests on "${name}" were kept in the 1.1 format (unknown inventory).`)
     return
   }
-  note(ctx, 'Item requests (modules, fuel, ammo) were converted with unverified inventory ids.')
+  if (!VERIFIED_ITEM_INVENTORY.has(name)) {
+    note(ctx, `Item requests on "${name}" were converted with an unverified inventory id.`)
+  }
 
   let stack = 0
   const plans: JsonObject[] = []
@@ -340,7 +355,9 @@ function migrateItems(entity: JsonObject, ctx: Context): void {
       for (let i = 0; i < count; i++) slots.push({ inventory, stack: stack++ })
       plans.push({ id: { name: item }, items: { in_inventory: slots } })
     } else {
-      // Fuel or ammo: one stack with a count.
+      // Fuel or ammo: one stack with a count. ⚠ The game splits this into
+      // stacks of the item's stack size (e.g. 3 nuclear fuel → 3 stacks of 1),
+      // which needs prototype data (M3). The total count is the same.
       const slot: JsonObject = { inventory, stack: stack++ }
       if (count > 1) slot['count'] = count
       plans.push({ id: { name: item }, items: { in_inventory: [slot] } })
@@ -353,13 +370,22 @@ function migrateItems(entity: JsonObject, ctx: Context): void {
 // Rails
 
 /**
- * ⚠ 1.1 rails (`straight-rail`, `curved-rail`) do not map one-to-one onto the
- * 2.0 rail pieces. They are kept with their 1.1 names and directions doubled;
- * how the game converts them is still to be checked against a game re-export.
+ * 1.1 rails do not map onto the 2.0 rail pieces. The game keeps them as the
+ * separate `legacy-straight-rail` / `legacy-curved-rail` prototypes (with the
+ * usual doubled direction), and so do we. Verified against the game's upgrade.
  */
-function noteLegacyRail(entity: JsonObject, ctx: Context): void {
+const LEGACY_RAILS: Readonly<Record<string, string>> = {
+  'straight-rail': 'legacy-straight-rail',
+  'curved-rail': 'legacy-curved-rail'
+}
+
+function migrateRail(entity: JsonObject, ctx: Context): void {
   const name = entity['name']
-  if (name === 'curved-rail' || name === 'straight-rail') {
-    note(ctx, '1.1 rails are not converted to 2.0 rail pieces yet; they may render incorrectly.')
-  }
+  if (typeof name !== 'string') return
+  const legacy = LEGACY_RAILS[name]
+  if (!legacy) return
+  entity['name'] = legacy
+  const entry = ctx.renamed.get(name)
+  if (entry) entry.count++
+  else ctx.renamed.set(name, { to: legacy, count: 1 })
 }

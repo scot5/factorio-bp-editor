@@ -39,7 +39,7 @@ Goal: `decode` / `encode` in `src/core/codec` with lossless round-trip over a re
 - Add a `tests/corpus/README.md` listing where each string came from. Commit only strings you made yourself or may share.
 - **Done when** there are at least 20 strings covering every root type.
 
-**Status: done.** [tests/corpus](../../tests/corpus/README.md) has 27 strings:
+**Status: done.** [tests/corpus](../../tests/corpus/README.md) has 30 strings (27 described below, plus the game's 2.1 upgrade of the three 1.1 strings):
 
 - 22 from 2.1.25: blueprints, books, deconstruction and upgrade planners (standalone and in books), an empty book, space platforms, a train with a schedule, quality and mirror.
 - 3 from 1.1.
@@ -92,11 +92,24 @@ Every root type is covered. The remaining gaps (Space Age planet buildings, powe
 - `migrate1to2(env)`: directions ×2, per-entity `connections` → top-level `wires`, `items` map → insert plans, and the rename table.
 - **Done when** each 1.1 corpus string migrates, re-encodes and imports into 2.1 without errors (checked by hand once, then by snapshot).
 
-**Status: implemented, waiting on verification.** `src/core/migrate`. The rename table is copied from the game's migration files. All 3 legacy strings migrate, validate with no issues, keep every entity, and get matching-colour wires. Still open:
+**Status: done.** `src/core/migrate`. The rename table is copied from the game's migration files. The game's own upgrade of the three legacy strings is in `tests/corpus/legacy-1.1/upgraded/`, and `tests/unit/migrate-oracle.test.ts` checks our migration against it. That confirmed:
+- power switch connectors 5 / 6;
+- legacy rail names;
+- `use_filters`;
+- module inventories for assemblers, chemical plants, rocket silos, labs and beacons, and locomotive fuel.
 
-1. Re-export the three 1.1 strings from the game (import into 2.1, then export) into `tests/corpus/legacy-1.1-game-export/`.
-2. Compare them with our migration to settle the open questions: inventory ids, power switch connectors, 1.1 rails, and filter inserter `use_filters`.
-3. Add a test that compares the two.
+Spec 02 § Version handling lists the import behaviour of the game that we deliberately do not copy.
+
+### 1.6 Follow-up: migrate 1.1 entity settings (not blocking M2)
+
+Convert the 1.1 formats the game upgrades but we keep verbatim, using the oracle test to check each:
+- decider and arithmetic combinator conditions;
+- constant combinator filters → `sections`;
+- requester and buffer chest `request_filters` → `sections`;
+- `circuit_enabled` on inserters, pumps, lamps and train stops;
+- the roboport and storage tank read modes.
+
+Needed before circuit analysis (M4) works on 1.1 blueprints.
 
 **M1 exit:** `src/core/codec` and `src/core/model` have high test coverage, CI is green, and spec 02 is updated with the confirmed facts.
 

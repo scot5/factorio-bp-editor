@@ -12,7 +12,10 @@ export const WireConnectorId = {
   CircuitGreen: 2,
   CombinatorOutputRed: 3,
   CombinatorOutputGreen: 4,
-  PoleCopper: 5
+  /** Copper on poles; also the left copper connector of a power switch. */
+  PoleCopper: 5,
+  /** Right copper connector of a power switch (confirmed by the game's upgrade of 1.1 "Cu1"). */
+  PowerSwitchRightCopper: 6
 } as const
 
 export type WireColor = 'red' | 'green' | 'copper'
@@ -27,6 +30,7 @@ export function wireColor(connector: number): WireColor | null {
     case WireConnectorId.CombinatorOutputGreen:
       return 'green'
     case WireConnectorId.PoleCopper:
+    case WireConnectorId.PowerSwitchRightCopper:
       return 'copper'
     default:
       return null

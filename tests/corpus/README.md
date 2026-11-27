@@ -40,6 +40,11 @@ All exported from Factorio **2.1.25** (`version` 562954250027018 = 2.1.25.10). A
 
 These come from [factorioprints.com](https://factorioprints.com), fetched on 2026-11-27 from its public API. They are publicly shared there. The authors are identified only by their factorioprints user id. They are vanilla 1.1 designs used to test the 1.1 → 2.x migration (spec 02 § Version handling). None of them use the top-level `wires` array. All wiring is in per-entity `connections` / `neighbours`.
 
+**[`legacy-1.1/upgraded/`](legacy-1.1/upgraded/)** holds the same three strings after the repo owner imported them into Factorio 2.1.25 and exported them again (same file names). They are the reference for the migration (`tests/unit/migrate-oracle.test.ts`) and also count as 2.x test data.
+- Importing the outpost book showed an error (no details given): the game deleted the entities that reference 0.14-era item names (`uranium-rifle-magazine`, `armor-piercing-rifle-magazine`).
+- In the rocket book, the game deleted the 80 assemblers using the removed `rocket-control-unit` recipe and the 80 combinators comparing against it.
+- In both books, it dropped copper wires that are longer than the poles' reach.
+
 | File | Root | Source | Contents | Exercises |
 | --- | --- | --- | --- | --- |
 | [mall_starter_factory.txt](legacy-1.1/mall_starter_factory.txt) | blueprint | [The Mall (Starter Factory)](https://factorioprints.com/view/-MAxCCwr8H65ISgExaHZ) | Early-to-mid game mall. **4,531 entities, 1,592 tiles.** Exported from 1.1.34. | 8-way directions, `filter-inserter`, `logistic-chest-*` names, per-entity circuit `connections`, `power-switch`, tiles (concrete, stone brick). |
@@ -67,4 +72,4 @@ These come from [factorioprints.com](https://factorioprints.com), fetched on 202
 - [x] An empty book. An empty blueprint cannot be exported from the game.
 - [x] Modded blueprints (Pyanodons, Krastorio 2)
 - [ ] Space Age planet production (foundry, electromagnetic plant, cryogenic plant, biochamber, agricultural tower). Only a `recycler` is present so far (in `quality_assembler.txt`).
-- [ ] Power switch wiring in 2.x (left and right copper connectors; their numeric ids are not confirmed yet)
+- [x] Power switch wiring in 2.x: connectors 5 (left) and 6 (right), confirmed through `legacy-1.1/upgraded/mall_starter_factory.txt`

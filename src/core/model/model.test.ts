@@ -111,7 +111,8 @@ describe('wires', () => {
     expect(wireColor(WireConnectorId.CircuitGreen)).toBe('green')
     expect(wireColor(WireConnectorId.CombinatorOutputGreen)).toBe('green')
     expect(wireColor(WireConnectorId.PoleCopper)).toBe('copper')
-    expect(wireColor(6)).toBeNull()
+    expect(wireColor(WireConnectorId.PowerSwitchRightCopper)).toBe('copper')
+    expect(wireColor(7)).toBeNull()
   })
 
   it('builds an adjacency graph and colour networks', () => {
