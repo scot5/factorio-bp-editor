@@ -170,4 +170,4 @@ Rules:
 
 ## Errors
 
-`DecodeError.reason` is one of: `empty`, `bad-version-byte`, `bad-base64`, `bad-zlib`, `too-large`, `bad-json`, `unknown-root`. The UI shows a human message for each.
+`DecodeError.reason` is one of: `empty`, `bad-version-byte`, `bad-base64`, `bad-zlib`, `too-large`, `bad-json`, `unknown-root`, `unsafe-version` (`version` is not a safe JS integer). The UI shows a human message for each (`DecodeError.userMessage`). Implementation: `src/core/codec`.

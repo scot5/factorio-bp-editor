@@ -57,6 +57,8 @@ Every root type is covered. The remaining gaps (Space Age planet buildings, powe
 
 ### 1.3 Codec
 
+**Status: done.** Implemented in `src/core/codec`, with no Node or DOM APIs: its own base64, fflate streaming inflate with a 64 MB cap checked every 16 KB of input. 177 unit tests pass. For every corpus string, `tests/unit/codec-corpus.test.ts` checks the result against Node zlib as an independent reference decoder, checks decode → encode → decode, and checks that the JSON is byte-identical apart from shortened floats. The in-game check passed with the re-encoded `train_with_schedule.txt`.
+
 | Task | Done when |
 | --- | --- |
 | `decode(str)`: trim, check the version byte, base64, `fflate` inflate with a size cap, `JSON.parse`, then assert that `version` is a safe integer | Each `DecodeError.reason` has a test |
