@@ -18,6 +18,8 @@ export const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = { timeUnit: 'minute' 
 export interface AnalysisResult {
   /** Whether game data was available; rate-based reports need it. */
   hasGameData: boolean
+  /** Time unit of the rate reports (M4 PR 3). */
+  timeUnit: AnalysisSettings['timeUnit']
   inventory: InventoryReport
 }
 
@@ -26,7 +28,10 @@ export function analyse(
   db: PrototypeDb | null,
   settings: AnalysisSettings = DEFAULT_ANALYSIS_SETTINGS
 ): AnalysisResult {
-  void settings // the rate reports (M4 PR 3) use the time unit
   const layout = layoutBlueprint(blueprint, db ? dbPrototypeLookup(db) : fallbackPrototypeLookup)
-  return { hasGameData: db !== null, inventory: inventory(blueprint, layout, db) }
+  return {
+    hasGameData: db !== null,
+    timeUnit: settings.timeUnit,
+    inventory: inventory(blueprint, layout, db)
+  }
 }

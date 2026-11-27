@@ -206,6 +206,9 @@ export function materialsText(
   name: (item: string) => string = (item) => item
 ): string {
   return report.materials
-    .map((r) => `${r.count} × ${name(r.item)}${r.quality ? ` (${r.quality})` : ''}`)
+    .map((r) => {
+      const quality = r.quality ? ` (${r.quality})` : ''
+      return `${r.count} × ${name(r.item)}${quality}`
+    })
     .join('\n')
 }

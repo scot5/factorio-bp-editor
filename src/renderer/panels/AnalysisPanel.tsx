@@ -24,7 +24,7 @@ const SOURCE_LABELS: Record<MaterialRow['sources'][number], string> = {
 }
 
 /** Analysis reports of the active blueprint (docs/spec/06-analysis.md). M4 PR 1: inventory. */
-export function AnalysisPanel({ current, onSelect }: Props): React.JSX.Element {
+export function AnalysisPanel({ current, onSelect }: Readonly<Props>): React.JSX.Element {
   const status = useAnalysis((s) => s.status)
   const result = useAnalysis((s) => s.result)
   const error = useAnalysis((s) => s.error)
@@ -48,11 +48,11 @@ function Inventory({
   report,
   hasGameData,
   onSelect
-}: {
+}: Readonly<{
   report: InventoryReport
   hasGameData: boolean
   onSelect(indexes: number[]): void
-}): React.JSX.Element {
+}>): React.JSX.Element {
   const db = useAssets((s) => s.db)
   const [copied, setCopied] = useState(false)
   const itemName = (name: string): string => displayName(db, 'item', name)
@@ -168,7 +168,7 @@ interface Row {
   kind: string
   name: string
   label: string
-  quality?: string | undefined
+  quality?: string
   count: number
   indexes: number[]
   note?: string
@@ -179,11 +179,11 @@ function CountTable({
   rows,
   testId,
   onSelect
-}: {
+}: Readonly<{
   rows: Row[]
   testId: string
   onSelect(indexes: number[]): void
-}): React.JSX.Element {
+}>): React.JSX.Element {
   if (rows.length === 0) return <p className="m-0 px-3 pb-2 text-ink-muted">None.</p>
   return (
     <ul className="m-0 list-none px-1 pb-2" data-testid={testId}>

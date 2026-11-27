@@ -17,6 +17,8 @@ describe('parseEnergy', () => {
     expect(parseEnergy('4MJ')).toBe(4_000_000)
     expect(parseEnergy('1.21GJ')).toBeCloseTo(1.21e9)
     expect(parseEnergy('5W')).toBe(5)
+    expect(parseEnergy('2EJ')).toBe(2e18)
+    expect(parseEnergy(' 1.5e3 kW ')).toBe(1.5e6)
     expect(parseEnergy(12)).toBe(12)
   })
   it('rejects anything else', () => {

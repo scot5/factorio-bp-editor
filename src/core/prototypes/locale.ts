@@ -57,7 +57,7 @@ export function localise(value: unknown, locale: Locale, depth = 0): string | un
   const [key, ...params] = value as [string, ...unknown[]]
   if (key === '') {
     const parts = params.map((p) => localise(p, locale, depth + 1))
-    return parts.some((p) => p === undefined) ? undefined : parts.join('')
+    return parts.includes(undefined) ? undefined : parts.join('')
   }
   const template = locale[key]
   return template === undefined ? undefined : expand(template, params, locale, depth)
@@ -74,5 +74,5 @@ function expand(template: string, params: unknown[], locale: Locale, depth: numb
       if (!section) return whole
       return localise([`${section}.${name}`], locale, depth + 1) ?? name
     })
-    .replace(/\\n/g, ' ')
+    .replaceAll(String.raw`\n`, ' ')
 }

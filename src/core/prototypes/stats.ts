@@ -23,7 +23,8 @@ export interface ItemCount {
 }
 
 export interface EnergySourceStats {
-  type: 'electric' | 'burner' | 'heat' | 'fluid' | 'void' | string
+  /** `electric`, `burner`, `heat`, `fluid` or `void`. */
+  type: string
   /** Electric drain in W. */
   drain?: number
   /** Burner fuel categories. */
@@ -93,9 +94,15 @@ const SI: Readonly<Record<string, number>> = {
 export function parseEnergy(value: unknown): number | undefined {
   if (typeof value === 'number') return value
   if (typeof value !== 'string') return undefined
-  const m = /^\s*([0-9]*\.?[0-9]+(?:e[+-]?\d+)?)\s*([kKMGTPEZYRQ]?)([WJ])\s*$/.exec(value)
-  if (!m) return undefined
-  return Number(m[1]) * SI[m[2]!]!
+  const m = /^([kKMGTPEZYRQ]?)([WJ])$/.exec(
+    value
+      .trim()
+      .replace(/^[\d.e+-]+/, '')
+      .trim()
+  )
+  const amount = Number.parseFloat(value)
+  if (!m || Number.isNaN(amount)) return undefined
+  return amount * SI[m[1]!]!
 }
 
 const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined)
@@ -108,7 +115,9 @@ function strings(v: unknown): string[] | undefined {
 
 /** `placeable_by` / `minable` style item references: one `{ item, count }` or a list. */
 export function itemCounts(value: unknown): ItemCount[] | undefined {
-  const list = Array.isArray(value) ? value : value ? [value] : []
+  let list: unknown[] = []
+  if (Array.isArray(value)) list = value
+  else if (value) list = [value]
   const out = list.flatMap((raw): ItemCount[] => {
     if (!raw || typeof raw !== 'object') return []
     const r = raw as Record<string, unknown>
