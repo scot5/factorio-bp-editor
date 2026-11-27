@@ -69,10 +69,23 @@ Every root type is covered. The remaining gaps (Space Age planet buildings, powe
 
 ### 1.4 Model and schemas
 
-- Zod schemas for the envelope, book, blueprint, entity, tile, wire, icons, planners. Lenient with `.passthrough()`, so unknown keys are kept.
-- A script, `scripts/gen-defines.ts`, that reads `doc-html/prototype-api.json` and `runtime-api.json` from the install path (`FACTORIO_PATH` env var) and generates `src/core/generated/defines.ts` (direction, wire connector names, and so on). Commit the generated file, not the source JSON.
-- Helpers in `src/core/geometry`: direction enums, rotate and mirror a position, and centre ⇄ footprint given a size.
-- Book helpers: walk the tree, get by path, handle sparse indexes.
+**Status: done.**
+
+- `src/core/model/schema.ts`: Zod 4 `looseObject` schemas for the envelope, books (recursive), blueprint, entity, tile, wire, icons, insert plans, stock connections and both planners. Types are inferred from the schemas. The schemas only **validate**. The decoded JSON is never replaced by Zod's output, which could reorder keys.
+- `src/core/model/validate.ts`: `validateEnvelope` returns issues with JSON paths and never throws or blocks. Beyond the schema, it checks:
+  - duplicate `entity_number` and duplicate slot index (errors);
+  - slots holding no item or several;
+  - references to missing entities from wires, `stock_connections` and schedules;
+  - wires joining different colours (warning).
+
+  All 27 corpus strings validate with no issues.
+- `src/core/model/wires.ts`: connector ids → colour, adjacency graph, and red/green/copper networks (combinator input and output kept separate). The corpus test confirms that every 2.x wire joins matching colours.
+- `src/core/model/book.ts`: paths are slot `index` values, so sparse books work. Provides `getNode`, `walk`, `findAll`, and `defaultPath` (follows `active_index`, else the first item).
+- `src/core/geometry`:
+  - 16-way directions: rotate, mirror, vectors, and conversion from 1.1 8-way directions and rolling-stock `orientation`;
+  - position rotate and mirror, and boxes;
+  - footprint, `snapCenter` and `isOnGrid` (checked against 400+ corpus entities).
+- **Changed from the original plan:** no `scripts/gen-defines.ts`. `runtime-api.json` gives defines names and a display `order`, but not the numeric values used in blueprints (for wire connectors the order is even wrong). The few defines needed (direction, wire connector ids) are hand-written in `geometry/direction.ts` and `model/wires.ts` and tested against the corpus. Prototype types will still be generated from `prototype-api.json`, in M3.
 
 ### 1.5 1.1 migration
 
