@@ -108,7 +108,26 @@ The renderer's `SpriteResolver` maps `(entity prototype, direction, variant)` to
   - Frame 0 by default. `repeat_count` holds each frame for that many ticks.
   - `apply_runtime_tint` masks (turrets) are tinted with the game's default player colour.
   - Output layer: `{ url, rect, shift (tiles), scale, tint?, additive?, shadow, ground }`. On screen a layer is `rect × scale / 32` tiles, centred at the entity centre plus `shift`.
-- **Not yet handled:** `mirror` (flipped sprites and fluid boxes), neighbour-dependent shapes (belts, pipes, walls beyond the single piece, rails), rolling stock and the remaining types. These are the next sprite steps (M3 7b–7d).
+  - A per-direction object marked `exact` draws only the matching key, with no fallback (the splitter's `structure_patch` is empty for north and south).
+- **Not yet handled:** `mirror` (flipped sprites and fluid boxes), rails, rolling stock, loaders, pipe covers on machines, and the remaining types. These are the next sprite steps (M3 7c–7d).
+
+### Connection-aware sprites
+
+Implemented in M3 step 7b (`src/core/sprites/shapes.ts`, `src/core/prototypes/connections.ts`). DB format 3 adds two fields to `EntityProto`:
+
+- `shapes`: named pictures picked per entity. `belt` is the `belt_animation_set.animation_set` sheet (transport belts, undergrounds, splitters, lane splitters). Undergrounds add the four `structure.direction_*` sheets. Pipes add the 16 `pictures` pieces (no windows, visualisations or frozen variants), heat pipes the 16 `connection_sprites`, and walls the 8 `pictures` pieces plus `filling`.
+- `connections`: fluid and heat connection points `{ position, direction, positions?, production?, categories? }` for the north-facing entity. They come from every property holding a FluidBox (or a list of them), `energy_source.fluid_box`, `heat_buffer.connections`, and `energy_source.connections` when the energy source is `heat`. Underground and linked pipe connections are left out. `positions` (one per facing) is kept for the pumpjack. Vanilla plus expansions has 32 such prototypes.
+
+The renderer builds a tile index of the blueprint (belt-like entities, walls, gates, and anything with connections) on the first sprite request, and calls `pickShape(db, entity, tileQuery)` per entity. The result is a small `Shape` value (`belts`, `picture`, `pictureDirection`, `fill`), which is also the cache key with the prototype name and direction. `resolveShape` draws belts (on the ground), then the static graphics, then the picture. The rules below were checked against the 2.1.25 sheets and in screenshots of the corpus:
+
+- **Belt sheet rows** (TransportBeltAnimationSet, 1-based): 1–4 straight E/W/N/S, 5–12 curves, 13–20 `starting_` / `ending_` caps for S, W, N, E. A curve is named `<side>_to_<facing>`: `east_to_north` (5) faces north and is fed from the east (rows 5 and 6 both join the top and right edges). By facing N/E/S/W and feeding side: N from E 5, from W 7; E from N 6, from S 9; S from E 10, from W 12; W from N 8, from S 11.
+- **Belts:** a neighbour *feeds* a tile when it is a transport belt, an output underground, or a splitter whose front is that tile. A belt curves when exactly one side feeds it and nothing feeds it from behind. It gets a start cap when nothing feeds it from behind and it is not curved, and an end cap when the tile ahead does not take its items (a belt not facing back, an underground not entered through its hood, or a splitter facing the same way).
+- **Underground belts:** the blueprint `direction` is the flow direction for both `type: "input"` and `"output"`. The structure sheet frames are ordered by the side the opening faces: input uses its own direction, output the opposite. Input uses `direction_in_side_loading` when fed only from a side; output uses `direction_out_side_loading` when the belt ahead is perpendicular. Both draw a straight belt under the hood, plus a start cap (input with no feeder) or end cap (output with nothing ahead).
+- **Splitters:** two straight belts half a tile either side of the centre (one for the 1-wide lane splitter), then `structure` and `structure_patch`.
+- **Pipes and heat pipes:** a side is connected when the entity has a connection pointing that way and the neighbour has a connection on the touching tile pointing back. Connections rotate clockwise with the facing (4-way). Connections must share a `connection_category` (default `"default"`). With `fluid_boxes_off_when_no_fluid_recipe`, input boxes count only when the recipe has a fluid ingredient and output boxes only when it has a fluid result. Pieces are named after the connected sides: `ending_up` connects only up, `t_up` connects left, right and up, and `corner_up_right` up and right (heat pipes: `corner_right_up`). No connection is `straight_vertical_single` (heat pipe: `single`).
+- **Walls:** a wall only looks right, left and down (the wall above draws the joint). It joins walls, and gates in line: a gate facing north or south stands in a vertical wall line (checked in the 1.1 outpost book). Pieces: R `ending_right`, L `ending_left`, L+R `straight_horizontal`, D `straight_vertical`, R+D `corner_right_down`, L+D `corner_left_down`, L+R+D `t_up`, none `single`. In a 2×2 block, the top-right wall also draws `filling` half a tile to its left (the rule the Factorio Blueprint Editor uses; it closes the gap in thick walls).
+- **Gates and pipe-to-ground** have static graphics: gate `vertical_animation` for north/south and `horizontal_animation` for east/west, pipe-to-ground per-direction `pictures`.
+- Every variant takes its first frame and variation. Turbo belts' `alternate` frames do not matter for a static view.
 
 Coverage is incremental, by prototype type:
 
@@ -119,7 +138,7 @@ Coverage is incremental, by prototype type:
 | P2 | Space Age (`asteroid-collector`, `thruster`, `cargo-bay`, `space-platform-hub`, `fusion-reactor`, `agricultural-tower`, `foundry`, `electromagnetic-plant`, `cryogenic-plant`, `biochamber`, …), elevated rails, and remaining types |
 | Fallback | Footprint box + dumped icon, for any type without a resolver |
 
-Belts and pipes need **connection-aware** sprites: a belt's curve depends on its neighbours, and a pipe's shape depends on its connected fluid boxes. These resolvers take a neighbour query, not only the entity.
+Belts, pipes and walls need **connection-aware** sprites: a belt's curve depends on its neighbours, and a pipe's shape depends on its connected fluid boxes. These resolvers take a neighbour query, not only the entity (see § Connection-aware sprites).
 
 ### Texture loading
 

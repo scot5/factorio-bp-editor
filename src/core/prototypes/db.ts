@@ -1,7 +1,8 @@
 import { NOT_BLUEPRINTABLE_TYPES, tileSizeOf } from './blueprintable'
 import type { PrototypeLookup } from './sizes'
-import { entityGraphics } from '../sprites/graphics'
-import type { GraphicsPart } from '../sprites/types'
+import { entityGraphics, entityShapes } from '../sprites/graphics'
+import type { GraphicsPart, ShapePictures } from '../sprites/types'
+import { entityConnections, type EntityConnections } from './connections'
 
 /**
  * Compact prototype database built from Factorio's `data-raw-dump.json`.
@@ -10,7 +11,7 @@ import type { GraphicsPart } from '../sprites/types'
  * Bump DB_FORMAT_VERSION whenever the shape or contents change, so cached
  * databases are rebuilt.
  */
-export const DB_FORMAT_VERSION = 2
+export const DB_FORMAT_VERSION = 3
 
 export type BoxTuple = [[number, number], [number, number]]
 
@@ -22,6 +23,10 @@ export interface EntityProto {
   selectionBox?: BoxTuple
   /** Static sprite definitions for the types in `SPRITE_TYPES` (format 2+). */
   graphics?: GraphicsPart[]
+  /** Neighbour-dependent pictures: belts, pipes, heat pipes, walls, undergrounds (format 3+). */
+  shapes?: ShapePictures
+  /** Fluid and heat connection points (format 3+). */
+  connections?: EntityConnections
 }
 
 export interface ItemProto {
@@ -168,12 +173,16 @@ export function buildPrototypeDb(
       const collisionBox = box(proto['collision_box'])
       const selectionBox = box(proto['selection_box'])
       const graphics = entityGraphics(type, proto)
+      const shapes = entityShapes(type, proto)
+      const connections = entityConnections(proto)
       entities[name] = {
         type,
         ...size,
         ...(collisionBox ? { collisionBox } : {}),
         ...(selectionBox ? { selectionBox } : {}),
-        ...(graphics ? { graphics } : {})
+        ...(graphics ? { graphics } : {}),
+        ...(shapes ? { shapes } : {}),
+        ...(connections ? { connections } : {})
       }
     }
   }

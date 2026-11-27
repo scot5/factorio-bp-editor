@@ -32,10 +32,46 @@ export function resolveGraphics(
       frame,
       fixedRotation: part.fixedRotation === true,
       ground: part.ground === true,
+      exact: part.exact === true,
       out
     })
   }
   return out
+}
+
+export interface ResolveOptions {
+  /**
+   * Take this index of a rotated sheet instead of the one for `direction`
+   * (TransportBeltAnimationSet rows: the index is the belt shape, 0-based).
+   */
+  index?: number
+  ground?: boolean
+  /** Added to every layer's shift, in tiles (the two belt halves under a splitter). */
+  offset?: [number, number]
+}
+
+/** Resolves one sprite node, for the neighbour-dependent shapes (see shapes.ts). */
+export function resolveSprite(
+  node: SpriteNode,
+  direction: number,
+  options: ResolveOptions = {}
+): SpriteLayer[] {
+  const out: SpriteLayer[] = []
+  walk(node, {
+    direction,
+    frame: 0,
+    fixedRotation: false,
+    ground: options.ground === true,
+    exact: false,
+    out,
+    ...(options.index !== undefined ? { index: options.index } : {})
+  })
+  const offset = options.offset
+  if (!offset) return out
+  return out.map((layer) => ({
+    ...layer,
+    shift: [layer.shift[0] + offset[0], layer.shift[1] + offset[1]]
+  }))
 }
 
 interface Context {
@@ -43,6 +79,9 @@ interface Context {
   frame: number
   fixedRotation: boolean
   ground: boolean
+  exact: boolean
+  /** Forced rotated-sheet index (ResolveOptions.index). */
+  index?: number
   out: SpriteLayer[]
   /** Inside a SpriteNWaySheet: which of its frames to take. */
   sheet?: { index: number; frames: number }
@@ -54,7 +93,9 @@ function walk(node: SpriteNode, ctx: Context): void {
       for (const layer of node.layers) walk(layer, ctx)
       return
     case 'directions': {
-      const picked = pickDirection(node.directions, ctx.direction)
+      const picked = ctx.exact
+        ? node.directions[DIRECTION_KEYS[Math.round(ctx.direction / 2) % 8]!]
+        : pickDirection(node.directions, ctx.direction)
       if (picked) walk(picked, ctx)
       return
     }
@@ -100,7 +141,8 @@ function resolveLeaf(leaf: SpriteLeaf, ctx: Context): SpriteLayer | null {
     defaultLineLength = ctx.sheet.frames
   } else if (leaf.directionCount) {
     const dc = leaf.directionCount
-    const dirIndex = ctx.fixedRotation ? 0 : Math.round((ctx.direction / 16) * dc) % dc
+    const dirIndex =
+      ctx.index ?? (ctx.fixedRotation ? 0 : Math.round((ctx.direction / 16) * dc) % dc)
     index = dirIndex * frameCount + frameIndex
     defaultLineLength = frameCount > 1 ? frameCount : dc
   } else {
