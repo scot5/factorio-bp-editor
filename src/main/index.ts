@@ -1,7 +1,7 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { IpcChannel, type AppInfo } from '@core/ipc'
+import { registerIpcHandlers } from './ipc'
 import { secureWebPreferences } from './security'
 import icon from '../../resources/icon.png?asset'
 
@@ -28,7 +28,7 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
-  // Block in-app navigation away from the renderer.
+  // Block in-app navigation away from the renderer (e.g. a file dropped outside the drop zone).
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const devUrl = process.env['ELECTRON_RENDERER_URL']
     if (!(is.dev && devUrl && url.startsWith(devUrl))) event.preventDefault()
@@ -39,16 +39,6 @@ function createWindow(): void {
   } else {
     void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
-}
-
-function registerIpcHandlers(): void {
-  ipcMain.handle(IpcChannel.AppGetInfo, (): AppInfo => ({
-    appVersion: app.getVersion(),
-    electronVersion: process.versions.electron,
-    chromeVersion: process.versions.chrome,
-    nodeVersion: process.versions.node,
-    platform: process.platform
-  }))
 }
 
 void app.whenReady().then(() => {

@@ -7,14 +7,20 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/core/**/*",
-    "tests/**/*"
+    "tests/**/*",
+    "scripts/**/*"
   ],
   "compilerOptions": {
     "composite": true,
     "noUncheckedIndexedAccess": true,
-    "types": ["electron-vite/node", "node"],
+    "types": [
+      "electron-vite/node",
+      "node"
+    ],
     "paths": {
-      "@core/*": ["./src/core/*"]
+      "@core/*": [
+        "./src/core/*"
+      ]
     }
   }
 }

@@ -13,12 +13,17 @@ test.afterAll(async () => {
 test('opens the main window', async () => {
   const page = await app.firstWindow()
   await expect(page).toHaveTitle('Factorio Blueprint Editor')
-  await expect(page.getByRole('heading', { name: 'Factorio Blueprint Editor' })).toBeVisible()
+  await expect(page.getByTestId('empty-state')).toBeVisible()
 })
 
 test('typed bridge works end to end', async () => {
   const page = await app.firstWindow()
-  await expect(page.getByTestId('versions')).toContainText('Electron')
+  const info = await page.evaluate(() =>
+    (
+      globalThis as unknown as { api: { app: { getInfo(): Promise<{ electronVersion: string }> } } }
+    ).api.app.getInfo()
+  )
+  expect(info.electronVersion).toMatch(/^\d+\./)
 })
 
 test('renderer has no Node access and only the typed bridge', async () => {

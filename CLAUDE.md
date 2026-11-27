@@ -36,6 +36,7 @@ pnpm typecheck          # tsc for core (no DOM/Node types), node (main/preload/t
 pnpm format             # Prettier (Markdown is excluded)
 pnpm build              # typecheck + electron-vite build
 pnpm build:win          # + electron-builder NSIS installer
+pnpm gen:sizes --dump   # regenerate src/core/generated/entity-sizes.ts (Factorio closed; set FACTORIO_PATH)
 ```
 
 Before you call a task done, run `typecheck`, `lint` and `test`. Also run `test:e2e` when you touch main, preload or the renderer.

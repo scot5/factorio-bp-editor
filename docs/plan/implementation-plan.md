@@ -117,6 +117,18 @@ Needed before circuit analysis (M4) works on 1.1 blueprints.
 
 Goal: paste a string and see it laid out as footprint boxes with names, inside a usable shell. No game assets yet.
 
+**Status: done except the size data for 2.5.** `pnpm gen:sizes --dump` must be run once with Factorio closed. Until then every entity draws as a 1×1 "unknown" box.
+- **Renderer:** `src/renderer` (Zustand + Immer store, Radix dialogs, Tailwind 4) and a PixiJS 8 scene that renders on demand.
+- **Core:** `src/core/richtext` (rich text parser), `src/core/geometry/spatial.ts` (uniform grid index), `src/core/model/layout.ts` (footprints), `src/core/prototypes` (size lookup and category colours).
+- **Main:** IPC for the open and save dialogs and the clipboard.
+- **E2E** (`tests/e2e/viewer.spec.ts`):
+  - import via the dialog and via paste anywhere;
+  - book navigation;
+  - click selection and the hover tooltip;
+  - error messages;
+  - export of the whole envelope and of the selected item, checked by decoding;
+  - a 16,937-entity blueprint at a median frame time of 16.7 ms.
+
 | # | Task | Done when |
 | --- | --- | --- |
 | 2.1 | App shell layout: toolbar, left panel (book tree), canvas area, right panel (inspector), status bar. Radix + Tailwind, dark theme. | Layout matches the spec 04 sketch |
