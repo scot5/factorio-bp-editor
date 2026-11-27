@@ -21,3 +21,30 @@ export function formatSi(value: number, unit: string): string {
 
 export const formatWatts = (w: number): string => formatSi(w, 'W')
 export const formatJoules = (j: number): string => formatSi(j, 'J')
+
+export type TimeUnit = 'second' | 'minute' | 'hour'
+
+/** Seconds per time unit. */
+export const TIME_UNIT_SECONDS: Readonly<Record<TimeUnit, number>> = {
+  second: 1,
+  minute: 60,
+  hour: 3600
+}
+
+const UNIT_SUFFIX: Readonly<Record<TimeUnit, string>> = { second: '/s', minute: '/min', hour: '/h' }
+
+/**
+ * A per-second rate in `unit`, with three significant digits and `k`/`M` above
+ * 1000, as the game's production stats show it: `30/min`, `0.75/s`, `1.2k/h`.
+ */
+export function formatRate(perSecond: number, unit: TimeUnit): string {
+  const value = perSecond * TIME_UNIT_SECONDS[unit]
+  const suffix = UNIT_SUFFIX[unit]
+  if (!Number.isFinite(value)) return `–${suffix}`
+  const abs = Math.abs(value)
+  if (abs < 999.5) {
+    const text = abs < 0.0005 ? '0' : Number(abs.toPrecision(3)).toString()
+    return `${value < 0 && text !== '0' ? '-' : ''}${text}${suffix}`
+  }
+  return `${formatSi(value, '').replace(' ', '')}${suffix}`
+}

@@ -94,6 +94,18 @@ Added in M4 plan step 2 for the power report (06 § 4). Checked against the 2.1.
 - **`PrototypeDb.planets`:** `{ solarPower, solarPowerInSpace? }` per planet, in percent. `solarPower` is the planet's `solar-power` surface property, else the property's `default_value` (100; Nauvis does not set it). 2.1.25: Nauvis 100 / 300 in orbit, Vulcanus 400 / 600, Gleba 50 / 200, Fulgora 20 / 120, Aquilo 1 / 60.
 - **Quality:** `qualityMultiplier(q, 'accumulator_capacity')` defaults to 1 + level (prototype-api.json). No vanilla quality sets an explicit power multiplier other than `beacon_power_usage`.
 
+### Production fields (DB format 9)
+
+Added in M4 plan step 3 for the production report (06 § 2). Checked against the 2.1.25 dump and `prototype-api.json`; the cached DB without icon lists is about 890 KB.
+
+- **Recipe categories changed in 2.1:** recipes have a `categories` list (default `{"crafting"}`), not `category`. Earlier DB formats read `category` and so stored `crafting` for every 2.1 recipe. `RecipeProto.categories` reads the list, else the 1.x/2.0 `category`, else `["crafting"]`.
+- **Products** (`RecipeProduct`): 2.1 replaced `probability` with `independent_probability` (default 1) and `shared_probability: { min, max }` (default 0 to 1; one shared roll per craft, so U-235 is 0.7 % and U-238 99.3 %). `probability` stores their product (independent × shared range width), or the old `probability`, and is omitted at 1. Also `extraCountFraction` (`extra_count_fraction`; recycling results have amount 0 and 0.5 here) and `ignoredByProductivity` (`ignored_by_productivity`, default `ignored_by_stats`: kovarex 40 of 41 U-235, the returned asteroid chunk). `amount_min` / `amount_max` store their mean as `amount` (2.1.25 vanilla uses neither). One recipe (`recipe-unknown`) has `results: {}` (an empty Lua table), which counts as no results.
+- **Recipe flags:** `allowProductivity` (default **false**; 122 vanilla recipes set it true, 9 set it false), `maximumProductivity` when not the default 3 (no vanilla recipe sets it), `surfaceConditions` (`{ property, min?, max? }`, 36 recipes), `hidden` for hidden and `parameter` recipes (recycling, `parameter-0` … `parameter-9`).
+- **`PrototypeDb.resources`:** per `resource` prototype with `minable.mining_time`: `category` (default `basic-solid`), `miningTime`, `results` (`minable.results`, else `result` × `count`), `requiredFluid` / `fluidAmount` (uranium: sulfuric acid 10), `infinite` (crude oil, sulfuric acid geyser, fluorine vent).
+- **Surfaces:** `PlanetProto.properties` (the planet's `surface_properties`), `PrototypeDb.surfaces.defaults` (every `surface-property` `default_value`: gravity 10, pressure 1000, magnetic-field 90, robot-energy-usage 1, solar-power 100, day-night-cycle 300) and `surfaces.platform` (the `space-platform` surface: gravity, pressure, magnetic field and day-night cycle 0).
+- **`EntityStats.fixedRecipe`:** crafting machines with `fixed_recipe` (rocket silo `rocket-part`, captive biter spawner `biter-egg`). **`ItemStats.spoilTicks`:** `spoil_ticks` (Space Age; e.g. iron bacteria 3600).
+- **Quality:** `QualityPrototype` has `crafting_machine_speed_multiplier` but no mining speed multiplier, so drill quality does not change mining speed here. `CraftingMachinePrototype::crafting_speed_quality_multiplier` (overrides the quality multiplier) is not read; no vanilla machine sets it.
+
 ### Typed schemas
 
 `doc-html/prototype-api.json` describes every prototype type and property in machine-readable form. Use it at build time to generate TypeScript types for the parts of the dump the app reads. Do not hand-write them.

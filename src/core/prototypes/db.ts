@@ -26,7 +26,7 @@ import {
  * Bump DB_FORMAT_VERSION whenever the shape or contents change, so cached
  * databases are rebuilt.
  */
-export const DB_FORMAT_VERSION = 8
+export const DB_FORMAT_VERSION = 9
 
 /** Types whose prototype `color` tints their runtime-tint masks. */
 const TINTED_TYPES: ReadonlySet<string> = new Set([
@@ -79,11 +79,53 @@ export interface RecipeIngredient {
   amount: number
 }
 
+/** A recipe or mining product (format 9+ for everything but `type`, `name` and `amount`). */
+export interface RecipeProduct extends RecipeIngredient {
+  /**
+   * Chance the product is given: `independent_probability` × the width of its
+   * `shared_probability` range (2.1), or the 1.x/2.0 `probability`. Omitted at 1.
+   */
+  probability?: number
+  /** Chance of one extra product per craft (`extra_count_fraction`). */
+  extraCountFraction?: number
+  /** Amount productivity does not multiply (`ignored_by_productivity`, default `ignored_by_stats`). */
+  ignoredByProductivity?: number
+}
+
+/** A surface property range a recipe needs (format 9+). */
+export interface SurfaceCondition {
+  property: string
+  min?: number
+  max?: number
+}
+
 export interface RecipeProto {
-  category: string
+  /** Recipe categories (2.1 `categories`; 1.x/2.0 `category`; default `crafting`; format 9+). */
+  categories: string[]
   energy: number
   ingredients: RecipeIngredient[]
-  results: (RecipeIngredient & { probability?: number })[]
+  results: RecipeProduct[]
+  /** Productivity applies (default false; format 9+). */
+  allowProductivity?: true
+  /** Productivity cap when not the default 3 (format 9+). */
+  maximumProductivity?: number
+  surfaceConditions?: SurfaceCondition[]
+  /** Hidden recipes (recycling, parameters, …; format 9+). */
+  hidden?: true
+}
+
+/** A minable resource (format 9+). */
+export interface ResourceProto {
+  /** Resource category (default `basic-solid`). */
+  category: string
+  /** Seconds to mine one cycle at mining speed 1. */
+  miningTime: number
+  results: RecipeProduct[]
+  /** Fluid used up while mining, `fluidAmount` per 10 cycles (uranium: sulfuric acid). */
+  requiredFluid?: string
+  fluidAmount?: number
+  /** Infinite resources (crude oil, geysers): the yield depends on the patch. */
+  infinite?: true
 }
 
 export interface QualityProto {
@@ -101,6 +143,8 @@ export interface PlanetProto {
   solarPower: number
   /** `solar_power_in_space` in percent, for platforms in its orbit. */
   solarPowerInSpace?: number
+  /** The planet's own `surface_properties` (format 9+); see `surfaceProperties`. */
+  properties?: Record<string, number>
 }
 
 /** Icon categories as written by `--dump-icon-sprites` (one folder each). */
@@ -136,6 +180,13 @@ export interface PrototypeDb {
   tileItems: Record<string, ItemCount[]>
   /** Planets with their solar power (format 8+). */
   planets: Record<string, PlanetProto>
+  /** Minable resources (format 9+). */
+  resources: Record<string, ResourceProto>
+  /**
+   * Surface property defaults (`surface-property` `default_value`) and the space
+   * platform surface's own properties (format 9+).
+   */
+  surfaces: { defaults: Record<string, number>; platform: Record<string, number> }
   /** English display names per category, when locale files were read (format 7+). */
   names: Partial<Record<NameCategory, Record<string, string>>>
   /** Names that have an icon file, per category (filled in by the main process). */
@@ -177,6 +228,15 @@ function box(value: unknown): BoxTuple | undefined {
   return [toTuple(value[0] as Vec), toTuple(value[1] as Vec)]
 }
 
+const numOr = (v: unknown, fallback: number): number => (typeof v === 'number' ? v : fallback)
+
+/** `amount`, else the mean of `amount_min` and `amount_max` (max below min counts as min). */
+function amountOf(r: Record<string, unknown>): number {
+  if (typeof r['amount'] === 'number') return r['amount']
+  const min = numOr(r['amount_min'], 1)
+  return (min + Math.max(min, numOr(r['amount_max'], min))) / 2
+}
+
 function ingredients(value: unknown): RecipeIngredient[] {
   if (!Array.isArray(value)) return []
   return value.flatMap((raw): RecipeIngredient[] => {
@@ -188,13 +248,123 @@ function ingredients(value: unknown): RecipeIngredient[] {
         {
           type: r['type'] === 'fluid' ? 'fluid' : 'item',
           name: String(r['name']),
-          amount: Number(r['amount'] ?? r['amount_max'] ?? 1),
-          ...(typeof r['probability'] === 'number' ? { probability: r['probability'] } : {})
+          amount: amountOf(r)
         }
       ]
     }
     return []
   })
+}
+
+/** Chance a product is given: independent × shared range (2.1), else `probability` (2.0). */
+function productProbability(r: Record<string, unknown>): number {
+  const shared = r['shared_probability'] as Record<string, unknown> | undefined
+  const range = shared ? numOr(shared['max'], 1) - numOr(shared['min'], 0) : 1
+  return numOr(r['independent_probability'], numOr(r['probability'], 1)) * range
+}
+
+/** Recipe or minable products (`results`), with probability and productivity fields. */
+export function products(value: unknown): RecipeProduct[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((raw): RecipeProduct[] => {
+    const [base] = ingredients([raw])
+    if (!base) return []
+    if (Array.isArray(raw)) return [base]
+    const r = raw as Record<string, unknown>
+    const probability = productProbability(r)
+    const extra = numOr(r['extra_count_fraction'], 0)
+    const ignored = numOr(r['ignored_by_productivity'], numOr(r['ignored_by_stats'], 0))
+    return [
+      {
+        ...base,
+        ...(probability === 1 ? {} : { probability }),
+        ...(extra ? { extraCountFraction: extra } : {}),
+        ...(ignored ? { ignoredByProductivity: ignored } : {})
+      }
+    ]
+  })
+}
+
+function surfaceConditions(value: unknown): SurfaceCondition[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const out = value.flatMap((raw): SurfaceCondition[] => {
+    const r = raw as Record<string, unknown> | null
+    if (typeof r?.['property'] !== 'string') return []
+    return [
+      {
+        property: r['property'],
+        ...(typeof r['min'] === 'number' ? { min: r['min'] } : {}),
+        ...(typeof r['max'] === 'number' ? { max: r['max'] } : {})
+      }
+    ]
+  })
+  return out.length ? out : undefined
+}
+
+function recipeCategories(proto: Record<string, unknown>): string[] {
+  const list = proto['categories']
+  if (Array.isArray(list)) return list.filter((c): c is string => typeof c === 'string')
+  return [typeof proto['category'] === 'string' ? proto['category'] : 'crafting']
+}
+
+function recipe(proto: Record<string, unknown>): RecipeProto {
+  const max = proto['maximum_productivity']
+  const conditions = surfaceConditions(proto['surface_conditions'])
+  return {
+    categories: recipeCategories(proto),
+    energy: typeof proto['energy_required'] === 'number' ? proto['energy_required'] : 0.5,
+    ingredients: ingredients(proto['ingredients']),
+    results: products(proto['results']),
+    ...(proto['allow_productivity'] === true ? { allowProductivity: true } : {}),
+    ...(typeof max === 'number' && max !== 3 ? { maximumProductivity: max } : {}),
+    ...(conditions ? { surfaceConditions: conditions } : {}),
+    ...(proto['hidden'] === true || proto['parameter'] === true ? { hidden: true } : {})
+  }
+}
+
+/** `minable.results`, else `result` × `count` (only loaded without `results`). */
+function minedProducts(minable: Record<string, unknown>): RecipeProduct[] {
+  if (minable['results'] !== undefined) return products(minable['results'])
+  const result = minable['result']
+  if (typeof result !== 'string') return []
+  return products([{ type: 'item', name: result, amount: numOr(minable['count'], 1) }])
+}
+
+function resources(raw: Raw): Record<string, ResourceProto> {
+  const out: Record<string, ResourceProto> = {}
+  for (const [name, proto] of Object.entries(raw['resource'] ?? {})) {
+    const m = proto['minable'] as Record<string, unknown> | undefined
+    if (typeof m?.['mining_time'] !== 'number') continue
+    const results = minedProducts(m)
+    const fluidAmount = numOr(m['fluid_amount'], 0)
+    out[name] = {
+      category: typeof proto['category'] === 'string' ? proto['category'] : 'basic-solid',
+      miningTime: m['mining_time'],
+      results,
+      ...(typeof m['required_fluid'] === 'string' && fluidAmount > 0
+        ? { requiredFluid: m['required_fluid'], fluidAmount }
+        : {}),
+      ...(proto['infinite'] === true ? { infinite: true } : {})
+    }
+  }
+  return out
+}
+
+const numberRecord = (value: unknown): Record<string, number> =>
+  Object.fromEntries(
+    Object.entries((value ?? {}) as Record<string, unknown>).filter(
+      (e): e is [string, number] => typeof e[1] === 'number'
+    )
+  )
+
+function surfaces(raw: Raw): PrototypeDb['surfaces'] {
+  const defaults: Record<string, number> = {}
+  for (const [name, proto] of Object.entries(raw['surface-property'] ?? {}))
+    if (typeof proto['default_value'] === 'number') defaults[name] = proto['default_value']
+  return {
+    defaults,
+    platform: numberRecord(raw['surface']?.['space-platform']?.['surface_properties'])
+  }
 }
 
 function colorToCss(value: unknown): string | undefined {
@@ -270,12 +440,7 @@ export function buildPrototypeDb(
 
   const recipes: Record<string, RecipeProto> = {}
   for (const proto of Object.values(raw['recipe'] ?? {})) {
-    recipes[String(proto['name'])] = {
-      category: typeof proto['category'] === 'string' ? proto['category'] : 'crafting',
-      energy: typeof proto['energy_required'] === 'number' ? proto['energy_required'] : 0.5,
-      ingredients: ingredients(proto['ingredients']),
-      results: ingredients(proto['results'])
-    }
+    recipes[String(proto['name'])] = recipe(proto)
   }
 
   const qualities: Record<string, QualityProto> = {}
@@ -311,6 +476,8 @@ export function buildPrototypeDb(
     ),
     tileItems: tileItems(raw, items),
     planets: planets(raw),
+    resources: resources(raw),
+    surfaces: surfaces(raw),
     names: meta.locale ? displayNames(raw, entities, items, meta.locale) : {},
     icons: {}
   }
@@ -324,9 +491,11 @@ function planets(raw: Raw): Record<string, PlanetProto> {
     const surface = proto['surface_properties'] as Record<string, unknown> | undefined
     const solar = surface?.['solar-power']
     const space = proto['solar_power_in_space']
+    const properties = numberRecord(surface)
     out[name] = {
       solarPower: typeof solar === 'number' ? solar : fallback,
-      ...(typeof space === 'number' ? { solarPowerInSpace: space } : {})
+      ...(typeof space === 'number' ? { solarPowerInSpace: space } : {}),
+      ...(Object.keys(properties).length ? { properties } : {})
     }
   }
   return out
