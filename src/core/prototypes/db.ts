@@ -6,6 +6,16 @@ import { tileGraphics, type TileGraphics } from '../sprites/tiles'
 import type { GraphicsPart, ShapePictures } from '../sprites/types'
 import { entityConnections, type EntityConnections } from './connections'
 import { entityWirePoints, type EntityWirePoints } from './wires'
+import { localise, type Locale, type NameCategory } from './locale'
+import {
+  entityStats,
+  itemCounts,
+  itemStats,
+  qualityMultipliers,
+  type EntityStats,
+  type ItemCount,
+  type ItemStats
+} from './stats'
 
 /**
  * Compact prototype database built from Factorio's `data-raw-dump.json`.
@@ -14,7 +24,7 @@ import { entityWirePoints, type EntityWirePoints } from './wires'
  * Bump DB_FORMAT_VERSION whenever the shape or contents change, so cached
  * databases are rebuilt.
  */
-export const DB_FORMAT_VERSION = 6
+export const DB_FORMAT_VERSION = 7
 
 /** Types whose prototype `color` tints their runtime-tint masks. */
 const TINTED_TYPES: ReadonlySet<string> = new Set([
@@ -49,9 +59,11 @@ export interface EntityProto {
   color?: [number, number, number, number]
   /** Where red, green and copper wires attach (format 6+). */
   wirePoints?: EntityWirePoints
+  /** Numbers for analysis: crafting, modules, energy, belts, inserters, poles (format 7+). */
+  stats?: EntityStats
 }
 
-export interface ItemProto {
+export interface ItemProto extends ItemStats {
   type: string
   stackSize?: number
   placeResult?: string
@@ -75,6 +87,10 @@ export interface RecipeProto {
 export interface QualityProto {
   level: number
   color?: string
+  /** Next quality level (format 7+). */
+  next?: string
+  /** Explicit `*_multiplier` fields without the suffix (format 7+); see `qualityMultiplier`. */
+  multipliers?: Record<string, number>
 }
 
 /** Icon categories as written by `--dump-icon-sprites` (one folder each). */
@@ -106,6 +122,10 @@ export interface PrototypeDb {
   tiles: string[]
   /** Tile sprites by tile name (format 5+). */
   tileGraphics: Record<string, TileGraphics>
+  /** Items that place each tile, from the tile's `placeable_by` or an item's `place_as_tile` (format 7+). */
+  tileItems: Record<string, ItemCount[]>
+  /** English display names per category, when locale files were read (format 7+). */
+  names: Partial<Record<NameCategory, Record<string, string>>>
   /** Names that have an icon file, per category (filled in by the main process). */
   icons: Partial<Record<IconCategory, string[]>>
 }
@@ -185,7 +205,7 @@ function colorToCss(value: unknown): string | undefined {
  */
 export function buildPrototypeDb(
   raw: Raw,
-  meta: { gameVersion: string; mods: { name: string; version: string }[] }
+  meta: { gameVersion: string; mods: { name: string; version: string }[]; locale?: Locale }
 ): PrototypeDb {
   const entities: Record<string, EntityProto> = {}
   for (const [type, prototypes] of Object.entries(raw)) {
@@ -202,6 +222,7 @@ export function buildPrototypeDb(
       const connections = entityConnections(proto)
       const wirePoints = entityWirePoints(type, proto)
       const tint = TINTED_TYPES.has(type) ? color(proto['color']) : undefined
+      const stats = entityStats(type, proto)
       entities[name] = {
         type,
         ...size,
@@ -212,7 +233,8 @@ export function buildPrototypeDb(
         ...(shapes ? { shapes } : {}),
         ...(connections ? { connections } : {}),
         ...(tint ? { color: tint } : {}),
-        ...(wirePoints ? { wirePoints } : {})
+        ...(wirePoints ? { wirePoints } : {}),
+        ...(stats ? { stats } : {})
       }
     }
   }
@@ -227,7 +249,8 @@ export function buildPrototypeDb(
           ? { placeResult: proto['place_result'] }
           : {}),
         ...(typeof proto['subgroup'] === 'string' ? { subgroup: proto['subgroup'] } : {}),
-        ...(typeof proto['order'] === 'string' ? { order: proto['order'] } : {})
+        ...(typeof proto['order'] === 'string' ? { order: proto['order'] } : {}),
+        ...itemStats(type, proto)
       }
     }
   }
@@ -245,9 +268,12 @@ export function buildPrototypeDb(
   const qualities: Record<string, QualityProto> = {}
   for (const proto of Object.values(raw['quality'] ?? {})) {
     const color = colorToCss(proto['color'])
+    const multipliers = qualityMultipliers(proto)
     qualities[String(proto['name'])] = {
       level: typeof proto['level'] === 'number' ? proto['level'] : 0,
-      ...(color ? { color } : {})
+      ...(color ? { color } : {}),
+      ...(typeof proto['next'] === 'string' ? { next: proto['next'] } : {}),
+      ...(Object.keys(multipliers).length ? { multipliers } : {})
     }
   }
 
@@ -270,8 +296,113 @@ export function buildPrototypeDb(
         return g ? [[name, g]] : []
       })
     ),
+    tileItems: tileItems(raw, items),
+    names: meta.locale ? displayNames(raw, entities, items, meta.locale) : {},
     icons: {}
   }
+}
+
+function tileItems(raw: Raw, items: Record<string, ItemProto>): Record<string, ItemCount[]> {
+  const out: Record<string, ItemCount[]> = {}
+  for (const [name, proto] of Object.entries(raw['tile'] ?? {})) {
+    const by = itemCounts(proto['placeable_by'])
+    if (by) out[name] = by
+  }
+  for (const [item, proto] of Object.entries(items)) {
+    if (proto.placeAsTile && !out[proto.placeAsTile]) out[proto.placeAsTile] = [{ item, count: 1 }]
+  }
+  return out
+}
+
+/**
+ * Display names, as the game picks them: the prototype's `localised_name`,
+ * then `<category>-name.<name>`. Items without one take the name of the
+ * entity or tile they place; recipes the name of their only (or main) product.
+ */
+function displayNames(
+  raw: Raw,
+  entities: Record<string, EntityProto>,
+  items: Record<string, ItemProto>,
+  locale: Locale
+): PrototypeDb['names'] {
+  const own = (
+    category: string,
+    proto: Record<string, unknown> | undefined,
+    name: string
+  ): string | undefined =>
+    (proto ? localise(proto['localised_name'], locale) : undefined) ??
+    locale[`${category}-name.${name}`]
+  const protoOf = (types: string[], name: string): Record<string, unknown> | undefined => {
+    for (const t of types) if (raw[t]?.[name]) return raw[t][name]
+    return undefined
+  }
+  const fill = (
+    names: Iterable<string>,
+    pick: (name: string) => string | undefined
+  ): Record<string, string> => {
+    const out: Record<string, string> = {}
+    for (const name of names) {
+      const value = pick(name)
+      if (value) out[name] = value
+    }
+    return out
+  }
+
+  const entity = fill(Object.keys(entities), (n) => own('entity', raw[entities[n]!.type]?.[n], n))
+  const tile = fill(Object.keys(raw['tile'] ?? {}), (n) => own('tile', raw['tile']?.[n], n))
+  const item = fill(Object.keys(items), (n) => {
+    const proto = items[n]!
+    const equipment = raw[proto.type]?.[n]?.['place_as_equipment_result']
+    return (
+      own('item', raw[proto.type]?.[n], n) ??
+      (proto.placeResult
+        ? (entity[proto.placeResult] ?? locale[`entity-name.${proto.placeResult}`])
+        : undefined) ??
+      (proto.placeAsTile ? tile[proto.placeAsTile] : undefined) ??
+      (typeof equipment === 'string' ? locale[`equipment-name.${equipment}`] : undefined)
+    )
+  })
+  const fluid = fill(Object.keys(raw['fluid'] ?? {}), (n) => own('fluid', raw['fluid']?.[n], n))
+  const recipe = fill(Object.keys(raw['recipe'] ?? {}), (n) => {
+    const proto = raw['recipe']![n]!
+    const named = own('recipe', proto, n)
+    if (named) return named
+    const main = mainProduct(proto)
+    if (!main) return undefined
+    return main.type === 'fluid' ? fluid[main.name] : item[main.name]
+  })
+  return {
+    entity,
+    item,
+    recipe,
+    fluid,
+    tile,
+    'virtual-signal': fill(Object.keys(raw['virtual-signal'] ?? {}), (n) =>
+      own('virtual-signal', raw['virtual-signal']?.[n], n)
+    ),
+    quality: fill(Object.keys(raw['quality'] ?? {}), (n) => own('quality', raw['quality']?.[n], n)),
+    'space-location': fill(
+      [...Object.keys(raw['planet'] ?? {}), ...Object.keys(raw['space-location'] ?? {})],
+      (n) => own('space-location', protoOf(['planet', 'space-location'], n), n)
+    )
+  }
+}
+
+/** A recipe's `main_product`, else its only result. */
+function mainProduct(proto: Record<string, unknown>): RecipeIngredient | undefined {
+  const results = ingredients(proto['results'])
+  if (typeof proto['main_product'] === 'string')
+    return results.find((r) => r.name === proto['main_product'])
+  return results.length === 1 ? results[0] : undefined
+}
+
+/** The display name of a prototype, or its internal name without game data or locale. */
+export function displayName(
+  db: PrototypeDb | null | undefined,
+  category: NameCategory,
+  name: string
+): string {
+  return db?.names?.[category]?.[name] ?? name
 }
 
 export function dbPrototypeLookup(db: PrototypeDb): PrototypeLookup {

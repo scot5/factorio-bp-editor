@@ -62,6 +62,19 @@ test('selects an entity by clicking and shows it in the inspector', async () => 
   await expect(page.getByTestId('selection-count')).toBeHidden()
 })
 
+test('analyses the blueprint in the worker; rows select their entities', async () => {
+  await page.getByTestId('tab-analysis').click()
+  await expect(page.getByTestId('analysis-summary')).toContainText('9')
+  // Bill of materials without game data: entity names stand in for items.
+  await expect(page.getByTestId('bom-row')).toHaveCount(2)
+  await expect(page.getByTestId('bom-row').first()).toContainText('big-electric-pole')
+  await expect(page.getByTestId('bom-row').first()).toContainText('8')
+  await page.getByTestId('entities-row').first().click()
+  await expect(page.getByTestId('selection-count')).toHaveText('8 selected')
+  await page.getByTestId('blueprint-canvas').press('Escape')
+  await page.getByTestId('tab-inspector').click()
+})
+
 test('rejects an invalid string with a readable message', async () => {
   await importViaDialog('this is not a blueprint')
   await expect(page.getByTestId('import-error')).toContainText('should start with "0"')

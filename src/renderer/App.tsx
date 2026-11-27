@@ -12,8 +12,10 @@ import { PX_PER_TILE } from './canvas/camera'
 import { ExportDialog } from './components/ExportDialog'
 import { ImportDialog } from './components/ImportDialog'
 import { KindBadge } from './components/KindBadge'
+import { AnalysisPanel } from './panels/AnalysisPanel'
 import { BookTree } from './panels/BookTree'
 import { Inspector } from './panels/Inspector'
+import { useAnalysis } from './store/analysis'
 import { useAssets } from './store/assets'
 import { useActiveDocument, useDocuments } from './store/documents'
 
@@ -52,6 +54,7 @@ export function App(): React.JSX.Element {
   const [scale, setScale] = useState(PX_PER_TILE)
   const [fitRequest, setFitRequest] = useState(0)
   const [dragging, setDragging] = useState(false)
+  const [sideTab, setSideTab] = useState<'inspector' | 'analysis'>('inspector')
 
   const lookup = useAssets((s) => s.lookup)
   const icon = useAssets((s) => s.icon)
@@ -75,6 +78,11 @@ export function App(): React.JSX.Element {
     [spriteResolver, layout]
   )
   const wires = useMemo(() => (layout ? wireSegments(db, layout) : []), [db, layout])
+
+  // Analysis runs in a Web Worker whenever the blueprint or the game data changes.
+  const blueprint = (payload as Blueprint | undefined) ?? null
+  useEffect(() => useAnalysis.getState().run(blueprint, db), [blueprint, db])
+  const analysedBlueprint = useAnalysis((s) => s.blueprint)
 
   const doImport = (text: string, fileName?: string): void => {
     const result = useDocuments.getState().importString(text, fileName)
@@ -247,12 +255,38 @@ export function App(): React.JSX.Element {
         </main>
 
         {/* Right: inspector */}
-        <aside className="w-80 shrink-0 overflow-y-auto border-l border-edge bg-panel">
-          {doc ? (
-            <Inspector doc={doc} node={node} layout={layout} selection={selection} />
-          ) : (
-            <p className="p-3 text-ink-muted">Import a blueprint to inspect it.</p>
-          )}
+        <aside className="flex w-80 shrink-0 flex-col border-l border-edge bg-panel">
+          <div className="flex shrink-0 border-b border-edge" role="tablist">
+            {(['inspector', 'analysis'] as const).map((tab) => (
+              <button
+                key={tab}
+                role="tab"
+                aria-selected={sideTab === tab}
+                className={clsx(
+                  'flex-1 border-b-2 px-3 py-1.5 capitalize',
+                  sideTab === tab
+                    ? 'border-accent text-ink'
+                    : 'border-transparent text-ink-muted hover:text-ink'
+                )}
+                onClick={() => setSideTab(tab)}
+                data-testid={`tab-${tab}`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {!doc && <p className="p-3 text-ink-muted">Import a blueprint to inspect it.</p>}
+            {doc && sideTab === 'inspector' && (
+              <Inspector doc={doc} node={node} layout={layout} selection={selection} />
+            )}
+            {doc && sideTab === 'analysis' && (
+              <AnalysisPanel
+                current={blueprint !== null && analysedBlueprint === blueprint}
+                onSelect={(indexes) => select(indexes)}
+              />
+            )}
+          </div>
         </aside>
       </div>
 
