@@ -13,6 +13,7 @@ import { ExportDialog } from './components/ExportDialog'
 import { ImportDialog } from './components/ImportDialog'
 import { KindBadge } from './components/KindBadge'
 import { AnalysisPanel } from './panels/AnalysisPanel'
+import { loadSections } from './store/sections'
 import { BookTree } from './panels/BookTree'
 import { Inspector } from './panels/Inspector'
 import { useAnalysis } from './store/analysis'
@@ -62,6 +63,7 @@ export function App(): React.JSX.Element {
   const hasGameData = db !== null
   const spriteResolver = useMemo(() => (db ? spriteResolverFor(db) : null), [db])
   useEffect(() => useAssets.getState().init(), [])
+  useEffect(() => void loadSections(), [])
   const iconSource = useMemo<IconSource | null>(
     () => (hasGameData ? (e) => (e.known ? icon('entity', e.entity.name) : null) : null),
     [hasGameData, icon]

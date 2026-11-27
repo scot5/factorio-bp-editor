@@ -6,6 +6,7 @@ import {
   type IdleRow,
   type MachineRow,
   type ProductionReport,
+  type RatioRow,
   type TimeUnit
 } from '@core/analysis'
 import { displayName, type PrototypeDb } from '@core/prototypes'
@@ -13,6 +14,7 @@ import { Icon } from '../components/Icon'
 import { useAnalysis } from '../store/analysis'
 import { useAssets } from '../store/assets'
 import { CountTable, type Row } from './CountTable'
+import { Section } from './Section'
 
 interface Props {
   /** Null without game data. */
@@ -43,12 +45,11 @@ export function ProductionSection({ report, onSelect }: Readonly<Props>): React.
   const unit = useAnalysis((s) => s.settings.timeUnit)
   if (!report || !db) {
     return (
-      <>
-        <div className="panel-title">Production</div>
+      <Section id="production" title="Production" level="report" summary="needs game data">
         <p className="m-0 px-3 pb-2 text-ink-muted" data-testid="production-needs-data">
           Requires game data.
         </p>
-      </>
+      </Section>
     )
   }
   const rate = (perSecond: number): string => formatRate(perSecond, unit)
@@ -59,127 +60,137 @@ export function ProductionSection({ report, onSelect }: Readonly<Props>): React.
   const balanced = flows('balanced')
   const under = report.ratios.filter((r) => r.status === 'under')
   const over = report.ratios.filter((r) => r.status === 'over')
+  const machineCount = report.machines.reduce((n, m) => n + m.count, 0)
+  const warnings = report.surfaceWarnings.length + under.length
 
   return (
-    <div data-testid="production">
-      <div className="panel-title">Production</div>
-      <UnitPicker />
-      {report.machines.length === 0 && report.idle.length === 0 && (
-        <p className="m-0 px-3 pb-2 text-ink-muted">No crafting machines or mining drills.</p>
-      )}
+    <Section
+      id="production"
+      title="Production"
+      level="report"
+      summary={productionSummary(machineCount, report.surfaceWarnings.length, under.length)}
+      warning={warnings > 0}
+    >
+      <div data-testid="production">
+        <UnitPicker />
+        {report.machines.length === 0 && report.idle.length === 0 && (
+          <p className="m-0 px-3 pb-2 text-ink-muted">No crafting machines or mining drills.</p>
+        )}
 
-      {report.surfaceWarnings.length > 0 && (
-        <>
-          <div className="panel-title text-danger">Surface conditions not met</div>
-          <CountTable
-            testId="surface-warnings"
-            rows={report.surfaceWarnings.map((w) => ({
-              key: `${w.recipe}/${w.property}`,
-              kind: 'recipe',
-              name: w.recipe,
-              label: displayName(db, 'recipe', w.recipe),
-              count: w.indexes.length,
-              indexes: w.indexes,
-              value: `${w.property} ${w.value}`,
-              note: `needs ${rangeText(w.min, w.max)}`
-            }))}
+        {report.surfaceWarnings.length > 0 && (
+          <Section
+            id="production.surface"
+            title="Surface conditions not met"
+            summary={report.surfaceWarnings.length}
+            warning
+          >
+            <CountTable
+              testId="surface-warnings"
+              rows={report.surfaceWarnings.map((w) => ({
+                key: `${w.recipe}/${w.property}`,
+                kind: 'recipe',
+                name: w.recipe,
+                label: displayName(db, 'recipe', w.recipe),
+                count: w.indexes.length,
+                indexes: w.indexes,
+                value: `${w.property} ${w.value}`,
+                note: `needs ${rangeText(w.min, w.max)}`
+              }))}
+              onSelect={onSelect}
+            />
+          </Section>
+        )}
+
+        {report.machines.length > 0 && (
+          <Section id="production.machines" title="Machines" summary={report.machines.length}>
+            <CountTable
+              testId="machines"
+              rows={machineRows(db, report.machines, rate)}
+              onSelect={onSelect}
+            />
+          </Section>
+        )}
+
+        {report.idle.length > 0 && (
+          <Section id="production.idle" title="No rate" summary={report.idle.length}>
+            <IdleList db={db} rows={report.idle} onSelect={onSelect} />
+          </Section>
+        )}
+
+        {under.length > 0 && (
+          <Section id="production.under" title="Under-supplied" summary={under.length} warning>
+            <CountTable
+              testId="under-supplied"
+              rows={ratioRows(db, under, 'supply as a share of what its consumers use')}
+              onSelect={onSelect}
+            />
+          </Section>
+        )}
+
+        {outputs.length > 0 && (
+          <FlowTable
+            testId="outputs"
+            title="Outputs"
+            db={db}
+            list={outputs}
+            rate={rate}
             onSelect={onSelect}
           />
-        </>
-      )}
-
-      {report.machines.length > 0 && (
-        <>
-          <div className="panel-title">Machines</div>
-          <CountTable
-            testId="machines"
-            rows={machineRows(db, report.machines, rate)}
+        )}
+        {inputs.length > 0 && (
+          <FlowTable
+            testId="inputs"
+            title="Inputs"
+            db={db}
+            list={inputs}
+            rate={rate}
             onSelect={onSelect}
           />
-        </>
-      )}
-
-      {report.idle.length > 0 && (
-        <>
-          <div className="panel-title">No rate</div>
-          <IdleList db={db} rows={report.idle} onSelect={onSelect} />
-        </>
-      )}
-
-      {under.length > 0 && (
-        <>
-          <div className="panel-title text-danger">Under-supplied</div>
-          <CountTable
-            testId="under-supplied"
-            rows={under.map((r) => ({
-              key: `${r.type}/${r.name}/${r.quality ?? ''}`,
-              kind: r.type,
-              name: r.name,
-              label: displayName(db, r.type, r.name),
-              quality: r.quality,
-              count: r.indexes.length,
-              indexes: r.indexes,
-              value: percent(r.supply),
-              note: 'supply as a share of what its consumers use'
-            }))}
+        )}
+        {balanced.length > 0 && (
+          <FlowTable
+            testId="balanced"
+            title="Balanced"
+            db={db}
+            list={balanced}
+            rate={rate}
             onSelect={onSelect}
           />
-        </>
-      )}
+        )}
 
-      {outputs.length > 0 && (
-        <FlowTable
-          testId="outputs"
-          title="Outputs"
-          db={db}
-          list={outputs}
-          rate={rate}
-          onSelect={onSelect}
-        />
-      )}
-      {inputs.length > 0 && (
-        <FlowTable
-          testId="inputs"
-          title="Inputs"
-          db={db}
-          list={inputs}
-          rate={rate}
-          onSelect={onSelect}
-        />
-      )}
-      {balanced.length > 0 && (
-        <FlowTable
-          testId="balanced"
-          title="Balanced"
-          db={db}
-          list={balanced}
-          rate={rate}
-          onSelect={onSelect}
-        />
-      )}
-
-      {over.length > 0 && (
-        <>
-          <div className="panel-title">Surplus</div>
-          <CountTable
-            testId="over-supplied"
-            rows={over.map((r) => ({
-              key: `${r.type}/${r.name}/${r.quality ?? ''}`,
-              kind: r.type,
-              name: r.name,
-              label: displayName(db, r.type, r.name),
-              quality: r.quality,
-              count: r.indexes.length,
-              indexes: r.indexes,
-              value: percent(r.supply),
-              note: 'made as a share of what is used inside the blueprint'
-            }))}
-            onSelect={onSelect}
-          />
-        </>
-      )}
-    </div>
+        {over.length > 0 && (
+          <Section id="production.surplus" title="Surplus" summary={over.length}>
+            <CountTable
+              testId="over-supplied"
+              rows={ratioRows(db, over, 'made as a share of what is used inside the blueprint')}
+              onSelect={onSelect}
+            />
+          </Section>
+        )}
+      </div>
+    </Section>
   )
+}
+
+function productionSummary(machines: number, surface: number, under: number): string {
+  const parts = [`${machines.toLocaleString('en')} ${machines === 1 ? 'machine' : 'machines'}`]
+  if (surface) parts.push(`${surface} surface`)
+  if (under) parts.push(`${under} under-supplied`)
+  return parts.join(' · ')
+}
+
+function ratioRows(db: PrototypeDb, list: RatioRow[], note: string): Row[] {
+  return list.map((r) => ({
+    key: `${r.type}/${r.name}/${r.quality ?? ''}`,
+    kind: r.type,
+    name: r.name,
+    label: displayName(db, r.type, r.name),
+    quality: r.quality,
+    count: r.indexes.length,
+    indexes: r.indexes,
+    value: percent(r.supply),
+    note
+  }))
 }
 
 function rangeText(min: number | undefined, max: number | undefined): string {
@@ -258,8 +269,7 @@ function FlowTable({
   onSelect(indexes: number[]): void
 }>): React.JSX.Element {
   return (
-    <>
-      <div className="panel-title">{title}</div>
+    <Section id={`production.${testId}`} title={title} summary={list.length}>
       <CountTable
         testId={testId}
         rows={list.map((f) => {
@@ -278,7 +288,7 @@ function FlowTable({
         })}
         onSelect={onSelect}
       />
-    </>
+    </Section>
   )
 }
 

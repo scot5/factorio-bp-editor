@@ -72,6 +72,9 @@ test('analyses the blueprint in the worker; rows select their entities', async (
   // Production and power need game data.
   await expect(page.getByTestId('production-needs-data')).toBeVisible()
   await expect(page.getByTestId('power-needs-data')).toBeVisible()
+  // The entity list starts collapsed.
+  await expect(page.getByTestId('entities-row')).toHaveCount(0)
+  await page.getByTestId('section-inventory.entities-toggle').click()
   await page.getByTestId('entities-row').first().click()
   await expect(page.getByTestId('selection-count')).toHaveText('8 selected')
   await page.getByTestId('blueprint-canvas').press('Escape')

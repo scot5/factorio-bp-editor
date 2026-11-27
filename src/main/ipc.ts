@@ -6,17 +6,20 @@ import {
   MAX_BLUEPRINT_FILE_BYTES,
   type AppInfo,
   type AssetStatus,
-  type OpenedFile
+  type OpenedFile,
+  type SectionState,
+  sanitizeSectionState
 } from '@core/ipc'
 import type { PrototypeDb } from '@core/prototypes'
 import type { AssetService } from './assets/service'
+import type { SettingsStore } from './settings'
 
 const TEXT_FILTERS = [
   { name: 'Blueprint strings', extensions: ['txt'] },
   { name: 'All files', extensions: ['*'] }
 ]
 
-export function registerIpcHandlers(assets: AssetService): void {
+export function registerIpcHandlers(assets: AssetService, settings: SettingsStore): void {
   ipcMain.handle(IpcChannel.AppGetInfo, (): AppInfo => ({
     appVersion: app.getVersion(),
     electronVersion: process.versions.electron,
@@ -78,6 +81,13 @@ export function registerIpcHandlers(assets: AssetService): void {
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send(IpcChannel.AssetsStatusChanged, status)
     }
+  })
+
+  ipcMain.handle(IpcChannel.UiGetSections, (): SectionState =>
+    sanitizeSectionState(settings.get().sections)
+  )
+  ipcMain.handle(IpcChannel.UiSetSections, (_event, state: unknown): void => {
+    settings.update({ sections: sanitizeSectionState(state) })
   })
 
   ipcMain.handle(

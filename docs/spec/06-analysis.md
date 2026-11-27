@@ -30,7 +30,7 @@ interface AnalysisSettings {
 - **Footprint:** width and height of the bounds rounded out to whole tiles, and the number of distinct tiles covered by entity footprints or tiles.
 - **Copy** writes `count × display name (quality)` lines. The constant combinator "request" blueprint and the raw-resource expansion are not built yet.
 - **Worker:** `src/renderer/analysis/analysis.worker.ts` runs `analyse()`; the DB is sent once per change, then one message per analysis. `store/analysis.ts` keeps only the latest result and runs whenever the active blueprint or the game data changes. Without edits (before M5) there is no debounce. The slowest corpus blueprint takes about 12 ms.
-- **UI:** the right sidebar has Inspector and Analysis tabs. The Analysis tab shows the summary, the bill of materials, entities and tiles, with game icons and display names. Clicking a row selects its entities (04 § Interaction).
+- **UI:** the right sidebar has Inspector and Analysis tabs. The Analysis tab shows the Inventory report (summary, bill of materials, entities and tiles), then Production and Power, with game icons and display names, in collapsible sections (04 § Side panel; Entities and Tiles start collapsed). Clicking a row selects its entities (04 § Interaction).
 
 ### 2. Production
 
