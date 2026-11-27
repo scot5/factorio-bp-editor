@@ -346,16 +346,22 @@ function resolveDrill(
   const inputs: RecipeIngredient[] = resource.requiredFluid
     ? [{ type: 'fluid', name: resource.requiredFluid, amount: (resource.fluidAmount ?? 0) / 10 }]
     : []
-  return rateOf(e, { resource: resourceName, assumed: true }, speed, productivity, {
-    cycles: speed / resource.miningTime,
-    inputs,
-    outputs: resource.results
-  })
+  return rateOf(
+    e,
+    { resource: resourceName, itemQuality: undefined, assumed: true },
+    speed,
+    productivity,
+    {
+      cycles: speed / resource.miningTime,
+      inputs,
+      outputs: resource.results
+    }
+  )
 }
 
 function rateOf(
   e: EntityLayout,
-  what: { recipe?: string; resource?: string; itemQuality?: string | undefined; assumed: boolean },
+  what: { recipe?: string; resource?: string; itemQuality: string | undefined; assumed: boolean },
   speed: number,
   productivity: number,
   work: { cycles: number; inputs: RecipeIngredient[]; outputs: RecipeProduct[] }

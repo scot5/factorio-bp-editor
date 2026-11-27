@@ -229,7 +229,9 @@ function machineRow(db: PrototypeDb, m: MachineRow, rate: (s: number) => string)
     indexes: m.indexes,
     value: rate(m.cycles),
     note: [
-      `${displayName(db, 'entity', m.name)}${m.quality ? ` (${m.quality})` : ''}`,
+      m.quality
+        ? `${displayName(db, 'entity', m.name)} (${m.quality})`
+        : displayName(db, 'entity', m.name),
       `speed ${Number(m.speed.toFixed(3))}`,
       m.productivity ? `+${Math.round(m.productivity * 100)} % productivity` : '',
       m.recipe ? 'crafts' : 'mining cycles'

@@ -322,19 +322,20 @@ function recipe(proto: Record<string, unknown>): RecipeProto {
   }
 }
 
+/** `minable.results`, else `result` × `count` (only loaded without `results`). */
+function minedProducts(minable: Record<string, unknown>): RecipeProduct[] {
+  if (minable['results'] !== undefined) return products(minable['results'])
+  const result = minable['result']
+  if (typeof result !== 'string') return []
+  return products([{ type: 'item', name: result, amount: numOr(minable['count'], 1) }])
+}
+
 function resources(raw: Raw): Record<string, ResourceProto> {
   const out: Record<string, ResourceProto> = {}
   for (const [name, proto] of Object.entries(raw['resource'] ?? {})) {
     const m = proto['minable'] as Record<string, unknown> | undefined
     if (typeof m?.['mining_time'] !== 'number') continue
-    const results =
-      m['results'] === undefined
-        ? products(
-            typeof m['result'] === 'string'
-              ? [{ type: 'item', name: m['result'], amount: numOr(m['count'], 1) }]
-              : []
-          )
-        : products(m['results'])
+    const results = minedProducts(m)
     const fluidAmount = numOr(m['fluid_amount'], 0)
     out[name] = {
       category: typeof proto['category'] === 'string' ? proto['category'] : 'basic-solid',
