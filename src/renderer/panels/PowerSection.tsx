@@ -193,7 +193,7 @@ function SurfacePicker({
 
   return (
     <label className="flex items-center gap-2 px-3 pb-1 text-[11px] text-ink-muted">
-      Surface
+      <span>Surface</span>
       <select
         className="min-w-0 flex-1 rounded border border-white/10 bg-transparent px-1 py-0.5 text-ink"
         value={value}

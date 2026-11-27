@@ -226,24 +226,125 @@ const byValue =
   (a: T, b: T): number =>
     value(b) - value(a) || b.count - a.count || a.name.localeCompare(b.name)
 
+/** Whether two boxes of the same size share a whole edge. */
+function sharesEdge(a: EntityLayout, b: EntityLayout): boolean {
+  const sameRow = a.box.top === b.box.top && a.box.bottom === b.box.bottom
+  const sameColumn = a.box.left === b.box.left && a.box.right === b.box.right
+  const touchX = a.box.right === b.box.left || b.box.right === a.box.left
+  const touchY = a.box.bottom === b.box.top || b.box.bottom === a.box.top
+  return (sameRow && touchX) || (sameColumn && touchY)
+}
+
 /** Reactor neighbours: same-named reactors whose boxes share a full edge. */
 function reactorNeighbours(reactors: EntityLayout[]): Map<number, number> {
   const out = new Map<number, number>()
   for (const a of reactors) {
-    let n = 0
-    for (const b of reactors) {
-      if (a === b || a.entity.name !== b.entity.name) continue
-      const sameRow = a.box.top === b.box.top && a.box.bottom === b.box.bottom
-      const sameColumn = a.box.left === b.box.left && a.box.right === b.box.right
-      if (
-        (sameRow && (a.box.right === b.box.left || b.box.right === a.box.left)) ||
-        (sameColumn && (a.box.bottom === b.box.top || b.box.bottom === a.box.top))
-      )
-        n++
-    }
-    out.set(a.index, n)
+    const n = reactors.filter((b) => a !== b && a.entity.name === b.entity.name && sharesEdge(a, b))
+    out.set(a.index, n.length)
   }
   return out
+}
+
+interface ElectricEntity {
+  e: EntityLayout
+  peak: number
+  generation: number
+}
+
+/** Running totals of the power report. */
+class PowerTally {
+  readonly consumers = new Map<string, ConsumerRow>()
+  readonly generators = new Map<string, GeneratorRow>()
+  readonly nonElectric = new Map<string, Row>()
+  readonly accumulators: PowerReport['accumulators'] = {
+    name: 'accumulator',
+    count: 0,
+    indexes: [],
+    capacity: 0,
+    output: 0
+  }
+  readonly reactors: EntityLayout[] = []
+  readonly poles: EntityLayout[] = []
+  readonly electric: ElectricEntity[] = []
+  peak = 0
+  drain = 0
+  generationPeak = 0
+  generationAverage = 0
+
+  constructor(
+    private readonly db: PrototypeDb,
+    private readonly effects: Map<number, ReceiverEffects>,
+    private readonly solar: SolarFactor
+  ) {}
+
+  add(e: EntityLayout, proto: EntityProto): void {
+    const sourceType = proto.stats?.energySource?.type
+    if (proto.type === 'electric-pole') {
+      this.poles.push(e)
+      return
+    }
+    if (proto.type === 'reactor') this.reactors.push(e)
+    if (sourceType && sourceType !== 'electric' && sourceType !== 'void')
+      addRow(this.nonElectric, e, () => ({}))
+    if (sourceType !== 'electric') return
+    if (proto.type === 'accumulator') this.addAccumulator(e, proto)
+    else if (PRODUCER_TYPES.has(proto.type)) this.addProducer(e, proto)
+    else this.addConsumer(e, proto)
+  }
+
+  private addAccumulator(e: EntityLayout, proto: EntityProto): void {
+    const source = proto.stats?.energySource
+    const a = this.accumulators
+    a.count++
+    a.indexes.push(e.index)
+    a.capacity +=
+      (source?.bufferCapacity ?? 0) *
+      qualityMultiplier(qualityOf(this.db, e), 'accumulator_capacity')
+    a.output += source?.outputFlowLimit ?? 0
+    this.electric.push({ e, peak: 0, generation: 0 })
+  }
+
+  private addProducer(e: EntityLayout, proto: EntityProto): void {
+    const kind = GENERATOR_KINDS[proto.type]
+    const rated =
+      (proto.stats?.powerOutput ?? 0) * qualityMultiplier(qualityOf(this.db, e), 'default')
+    const solar = kind === 'solar'
+    const out = solar ? rated * this.solar.peak : rated
+    if (kind && out > 0) {
+      const average = solar ? rated * this.solar.average : out
+      const row = addRow(this.generators, e, () => ({ kind, peak: 0, average: 0 }))
+      row.peak += out
+      row.average += average
+      this.generationPeak += out
+      this.generationAverage += average
+    }
+    this.electric.push({ e, peak: 0, generation: out })
+  }
+
+  private addConsumer(e: EntityLayout, proto: EntityProto): void {
+    const draw = electricDraw(this.db, proto, e, this.effects.get(e.index))
+    const row = addRow(this.consumers, e, () => ({ peak: 0, drain: 0 }))
+    row.peak += draw.peak
+    row.drain += draw.drain
+    this.peak += draw.peak
+    this.drain += draw.drain
+    this.electric.push({ e, peak: draw.peak, generation: 0 })
+  }
+
+  /** Heat rows of the reactors, with the neighbour bonus. */
+  heat(): { rows: HeatRow[]; total: number } {
+    const neighbours = reactorNeighbours(this.reactors)
+    const rows = new Map<string, HeatRow>()
+    let total = 0
+    for (const e of this.reactors) {
+      const s = this.db.entities[e.entity.name]?.stats ?? {}
+      const bonus = 1 + (s.neighbourBonus ?? 1) * (neighbours.get(e.index) ?? 0)
+      const out = (s.heatOutput ?? 0) * bonus * qualityMultiplier(qualityOf(this.db, e), 'default')
+      addRow(rows, e, () => ({ output: 0 })).output += out
+      total += out
+    }
+    return { rows: [...rows.values()].sort(byValue((r) => r.output)), total }
+  }
 }
 
 export function power(
@@ -251,106 +352,37 @@ export function power(
   layout: BlueprintLayout,
   surface: PowerSurface = {}
 ): PowerReport {
-  const effects = entityEffects(db, layout)
   const space = surface.space ?? isSpacePlatform(db, layout)
   const solar = solarFactor(db, { ...surface, space })
-  const consumers = new Map<string, ConsumerRow>()
-  const generators = new Map<string, GeneratorRow>()
-  const heat = new Map<string, HeatRow>()
-  const unpowered = new Map<string, Row>()
-  const nonElectric = new Map<string, Row>()
-  const accumulators: PowerReport['accumulators'] = {
-    name: 'accumulator',
-    count: 0,
-    indexes: [],
-    capacity: 0,
-    output: 0
-  }
-  const reactors: EntityLayout[] = []
-  const poles: EntityLayout[] = []
-  const electric: { e: EntityLayout; peak: number; generation: number }[] = []
-  let peak = 0
-  let drain = 0
-  let generationPeak = 0
-  let generationAverage = 0
-
+  const tally = new PowerTally(db, entityEffects(db, layout), solar)
   for (const e of layout.entities) {
     const proto = db.entities[e.entity.name]
-    if (!proto) continue
-    const s = proto.stats ?? {}
-    const sourceType = s.energySource?.type
-    const q = qualityOf(db, e)
-    if (proto.type === 'electric-pole') {
-      poles.push(e)
-      continue
-    }
-    if (proto.type === 'reactor') reactors.push(e)
-    if (sourceType && sourceType !== 'electric' && sourceType !== 'void')
-      addRow(nonElectric, e, () => ({}))
-    if (sourceType !== 'electric') continue
-
-    if (proto.type === 'accumulator') {
-      accumulators.count++
-      accumulators.indexes.push(e.index)
-      accumulators.capacity +=
-        (s.energySource?.bufferCapacity ?? 0) * qualityMultiplier(q, 'accumulator_capacity')
-      accumulators.output += s.energySource?.outputFlowLimit ?? 0
-      electric.push({ e, peak: 0, generation: 0 })
-    } else if (PRODUCER_TYPES.has(proto.type)) {
-      const kind = GENERATOR_KINDS[proto.type]
-      const rated = (s.powerOutput ?? 0) * qualityMultiplier(q, 'default')
-      const out = kind === 'solar' ? rated * solar.peak : rated
-      if (kind && out > 0) {
-        const avg = kind === 'solar' ? rated * solar.average : out
-        const row = addRow(generators, e, () => ({ kind, peak: 0, average: 0 }))
-        row.peak += out
-        row.average += avg
-        generationPeak += out
-        generationAverage += avg
-      }
-      electric.push({ e, peak: 0, generation: out })
-    } else {
-      const draw = electricDraw(db, proto, e, effects.get(e.index))
-      const row = addRow(consumers, e, () => ({ peak: 0, drain: 0 }))
-      row.peak += draw.peak
-      row.drain += draw.drain
-      peak += draw.peak
-      drain += draw.drain
-      electric.push({ e, peak: draw.peak, generation: 0 })
-    }
+    if (proto) tally.add(e, proto)
   }
 
-  const neighbours = reactorNeighbours(reactors)
-  let heatOutput = 0
-  for (const e of reactors) {
-    const s = db.entities[e.entity.name]?.stats ?? {}
-    const bonus = 1 + (s.neighbourBonus ?? 1) * (neighbours.get(e.index) ?? 0)
-    const out = (s.heatOutput ?? 0) * bonus * qualityMultiplier(qualityOf(db, e), 'default')
-    addRow(heat, e, () => ({ output: 0 })).output += out
-    heatOutput += out
-  }
-
-  const { networks, supplied } = poleNetworks(db, layout, poles, electric)
+  const heat = tally.heat()
+  const { networks, supplied } = poleNetworks(db, layout, tally.poles, tally.electric)
+  const unpowered = new Map<string, Row>()
   if (!space)
-    for (const { e } of electric) if (!supplied.has(e.index)) addRow(unpowered, e, () => ({}))
+    for (const { e } of tally.electric) if (!supplied.has(e.index)) addRow(unpowered, e, () => ({}))
 
   return {
-    peak,
-    drain,
-    consumers: [...consumers.values()].sort(byValue((r) => r.peak)),
-    generationPeak,
-    generationAverage,
-    generators: [...generators.values()].sort(byValue((r) => r.peak)),
+    peak: tally.peak,
+    drain: tally.drain,
+    consumers: [...tally.consumers.values()].sort(byValue((r) => r.peak)),
+    generationPeak: tally.generationPeak,
+    generationAverage: tally.generationAverage,
+    generators: [...tally.generators.values()].sort(byValue((r) => r.peak)),
     solar,
     surface: { planet: surface.planet ?? 'nauvis', space, detected: surface.space === undefined },
-    heatOutput,
-    heat: [...heat.values()].sort(byValue((r) => r.output)),
-    accumulators,
+    heatOutput: heat.total,
+    heat: heat.rows,
+    accumulators: tally.accumulators,
     networks,
-    poleCount: poles.length,
+    poleCount: tally.poles.length,
     unpowered: [...unpowered.values()].sort(byValue((r) => r.count)),
     unpoweredCount: [...unpowered.values()].reduce((n, r) => n + r.count, 0),
-    nonElectric: [...nonElectric.values()].sort(byValue((r) => r.count))
+    nonElectric: [...tally.nonElectric.values()].sort(byValue((r) => r.count))
   }
 }
 
@@ -363,81 +395,102 @@ export function supplyArea(pole: EntityLayout, distance: number): Box {
   return { left: x - distance, top: y - distance, right: x + distance, bottom: y + distance }
 }
 
+/** Union-find over layout indexes. */
+class UnionFind {
+  private readonly parent = new Map<number, number>()
+
+  constructor(items: Iterable<number>) {
+    for (const i of items) this.parent.set(i, i)
+  }
+
+  has(i: number): boolean {
+    return this.parent.has(i)
+  }
+
+  find(i: number): number {
+    let root = i
+    while (this.parent.get(root) !== root) root = this.parent.get(root)!
+    this.parent.set(i, root)
+    return root
+  }
+
+  union(a: number, b: number): void {
+    const ra = this.find(a)
+    const rb = this.find(b)
+    if (ra !== rb) this.parent.set(ra, rb)
+  }
+}
+
 /**
- * Copper networks of the poles. Poles join through copper wires; a power
- * switch joins its two sides only when `switch_state` is on. Each electric
- * entity belongs to the network of the first pole whose supply area reaches it.
+ * Joins poles connected by copper wires. A power switch's two copper
+ * connectors are separate ends of the copper networks; its sides are joined
+ * only when `switch_state` is on.
+ */
+function joinCopperNetworks(db: PrototypeDb, layout: BlueprintLayout, poles: UnionFind): void {
+  const byNumber = new Map<number, EntityLayout>()
+  for (const e of layout.entities)
+    if (typeof e.entity.entity_number === 'number') byNumber.set(e.entity.entity_number, e)
+
+  const switchSides = new Map<EntityLayout, { left?: number; right?: number }>()
+  for (const group of wireNetworks(layout.wires, 'copper')) {
+    const ends = group.flatMap((end) => {
+      const e = byNumber.get(end.entity)
+      return e ? [{ e, connector: end.connector }] : []
+    })
+    const first = ends.find(({ e }) => poles.has(e.index))?.e.index
+    if (first === undefined) continue
+    for (const { e, connector } of ends) {
+      if (poles.has(e.index)) poles.union(first, e.index)
+      else if (db.entities[e.entity.name]?.type === 'power-switch') {
+        const sides = switchSides.get(e) ?? {}
+        if (connector === WireConnectorId.PowerSwitchRightCopper) sides.right = first
+        else sides.left = first
+        switchSides.set(e, sides)
+      }
+    }
+  }
+  for (const [e, sides] of switchSides) {
+    const on = (e.entity as { switch_state?: unknown }).switch_state === true
+    if (on && sides.left !== undefined && sides.right !== undefined)
+      poles.union(sides.left, sides.right)
+  }
+}
+
+/**
+ * Copper networks of the poles. Each electric entity belongs to the network
+ * of the first pole whose supply area reaches it.
  */
 function poleNetworks(
   db: PrototypeDb,
   layout: BlueprintLayout,
   poles: EntityLayout[],
-  electric: { e: EntityLayout; peak: number; generation: number }[]
+  electric: ElectricEntity[]
 ): { networks: PoleNetwork[]; supplied: Set<number> } {
-  const byNumber = new Map<number, EntityLayout>()
-  for (const e of layout.entities)
-    if (typeof e.entity.entity_number === 'number') byNumber.set(e.entity.entity_number, e)
-
-  // Union-find over pole indexes; a network id per pole.
-  const parent = new Map<number, number>()
-  for (const p of poles) parent.set(p.index, p.index)
-  const find = (i: number): number => {
-    let root = i
-    while (parent.get(root) !== root) root = parent.get(root)!
-    parent.set(i, root)
-    return root
-  }
-  const union = (a: number, b: number): void => {
-    const ra = find(a)
-    const rb = find(b)
-    if (ra !== rb) parent.set(ra, rb)
-  }
-
-  // A power switch's two copper connectors are separate ends of the copper
-  // networks; remember which pole each side reaches, per switch.
-  const switchSides = new Map<EntityLayout, { left?: number; right?: number }>()
-  for (const group of wireNetworks(layout.wires, 'copper')) {
-    const groupPoles = group.flatMap((end) => {
-      const e = byNumber.get(end.entity)
-      return e && parent.has(e.index) ? [e.index] : []
-    })
-    const first = groupPoles[0]
-    if (first === undefined) continue
-    for (const p of groupPoles) union(first, p)
-    for (const end of group) {
-      const e = byNumber.get(end.entity)
-      if (!e || db.entities[e.entity.name]?.type !== 'power-switch') continue
-      const sides = switchSides.get(e) ?? {}
-      if (end.connector === WireConnectorId.PowerSwitchRightCopper) sides.right = first
-      else sides.left = first
-      switchSides.set(e, sides)
-    }
-  }
-  for (const [e, sides] of switchSides) {
-    const on = (e.entity as { switch_state?: unknown }).switch_state === true
-    if (on && sides.left !== undefined && sides.right !== undefined) union(sides.left, sides.right)
-  }
+  const sets = new UnionFind(poles.map((p) => p.index))
+  joinCopperNetworks(db, layout, sets)
 
   const areas = new SpatialIndex<EntityLayout>()
-  for (const p of poles)
-    areas.insert(supplyArea(p, db.entities[p.entity.name]?.stats?.supplyAreaDistance ?? 0), p)
-
   const networks = new Map<number, PoleNetwork>()
   for (const p of poles) {
-    const root = find(p.index)
-    let n = networks.get(root)
-    if (!n) {
-      n = { pole: p.entity.name, poles: [], members: [], peak: 0, generation: 0 }
-      networks.set(root, n)
+    areas.insert(supplyArea(p, db.entities[p.entity.name]?.stats?.supplyAreaDistance ?? 0), p)
+    const root = sets.find(p.index)
+    const n = networks.get(root) ?? {
+      pole: p.entity.name,
+      poles: [],
+      members: [],
+      peak: 0,
+      generation: 0
     }
     n.poles.push(p.index)
+    networks.set(root, n)
   }
+
   const supplied = new Set<number>()
   for (const { e, peak, generation } of electric) {
-    const reach = areas.query(e.box)
-    if (reach.length === 0) continue
+    const pole = areas.query(e.box)[0]
+    if (!pole) continue
     supplied.add(e.index)
-    const n = networks.get(find(reach[0]!.index))!
+    const n = networks.get(sets.find(pole.index))!
     n.members.push(e.index)
     n.peak += peak
     n.generation += generation

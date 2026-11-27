@@ -134,6 +134,30 @@ export function entityEffects(
   db: PrototypeDb,
   layout: BlueprintLayout
 ): Map<number, ReceiverEffects> {
+  const beacons = beaconIndex(db, layout)
+  const out = new Map<number, ReceiverEffects>()
+  for (const e of layout.entities) {
+    const proto = db.entities[e.entity.name]
+    if (!proto || !RECEIVER_TYPES.has(proto.type)) continue
+    const allowed = proto.stats?.allowedEffects ?? []
+    const effects: Effects = { ...proto.stats?.baseEffect }
+    addEffects(effects, sumModules(db, e.entity, proto.type), 1, allowed)
+    const near = beacons.query(e.box)
+    for (const b of near)
+      addEffects(
+        effects,
+        b.transmitted,
+        profileScale(db, b, near),
+        allowed.filter((a) => b.allowed.includes(a))
+      )
+    if (Object.keys(effects).length || near.length)
+      out.set(e.index, { effects, beacons: near.map((b) => b.index) })
+  }
+  return out
+}
+
+/** Beacons with modules, indexed by the area they reach. */
+function beaconIndex(db: PrototypeDb, layout: BlueprintLayout): SpatialIndex<Beacon> {
   const beacons = new SpatialIndex<Beacon>()
   for (const e of layout.entities) {
     const proto = db.entities[e.entity.name]
@@ -153,34 +177,19 @@ export function entityEffects(
       allowed: s.allowedEffects ?? []
     })
   }
+  return beacons
+}
 
-  const out = new Map<number, ReceiverEffects>()
-  for (const e of layout.entities) {
-    const proto = db.entities[e.entity.name]
-    if (!proto || !RECEIVER_TYPES.has(proto.type)) continue
-    const s = proto.stats ?? {}
-    const allowed = s.allowedEffects ?? []
-    const effects: Effects = { ...s.baseEffect }
-    addEffects(effects, sumModules(db, e.entity, proto.type), 1, allowed)
-    const near = beacons.query(e.box)
-    for (const b of near) {
-      const counted =
-        db.entities[b.name]?.stats?.beaconCounter === 'same_type'
-          ? near.filter((o) => o.name === b.name).length
-          : near.length
-      const profile = db.entities[b.name]?.stats?.profile ?? []
-      const scale = profile.length ? profile[Math.min(counted, profile.length) - 1]! : 1
-      addEffects(
-        effects,
-        b.transmitted,
-        scale,
-        allowed.filter((a) => b.allowed.includes(a))
-      )
-    }
-    if (Object.keys(effects).length || near.length)
-      out.set(e.index, { effects, beacons: near.map((b) => b.index) })
-  }
-  return out
+/** `profile[n - 1]` of a beacon, n = the beacons it counts among those reaching the receiver. */
+function profileScale(db: PrototypeDb, beacon: Beacon, near: readonly Beacon[]): number {
+  const stats = db.entities[beacon.name]?.stats
+  const profile = stats?.profile ?? []
+  if (profile.length === 0) return 1
+  const counted =
+    stats?.beaconCounter === 'same_type'
+      ? near.filter((o) => o.name === beacon.name).length
+      : near.length
+  return profile[Math.min(counted, profile.length) - 1]!
 }
 
 /** A box grown by `d` tiles on every side. */
