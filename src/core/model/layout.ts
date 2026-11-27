@@ -11,6 +11,7 @@ import {
 } from '../geometry'
 import {
   categoryOf,
+  FACING_TYPES,
   ROLLING_STOCK_TYPES,
   type EntityCategory,
   type PrototypeLookup
@@ -79,7 +80,10 @@ export function layoutBlueprint(blueprint: Blueprint, lookup: PrototypeLookup): 
       box: footprint(entity.position, size),
       size,
       direction,
-      directional: entity.direction !== undefined || rolling,
+      directional:
+        entity.direction !== undefined ||
+        rolling ||
+        (info !== undefined && FACING_TYPES.has(info.type)),
       category: categoryOf(info),
       known: info !== undefined
     }

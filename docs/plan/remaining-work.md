@@ -4,7 +4,7 @@ This document is for the next agent or developer. It has everything needed to co
 
 Read in this order: [CLAUDE.md](../../CLAUDE.md) → this file → the [spec](../spec/README.md) section for your step → the [implementation plan](implementation-plan.md) for history and detail.
 
-Snapshot date: 2026-11-27. `main` at `13fbfae` (PR #2 merged).
+Snapshot date: 2026-11-27. `main` at `13fbfae` (PR #2 merged), plus this plan (#3) and M3 step 7a (#4) in review.
 
 ---
 
@@ -24,7 +24,7 @@ Snapshot date: 2026-11-27. `main` at `13fbfae` (PR #2 merged).
 | Phase 0: scaffold | done | #1 |
 | M1: codec, model, 1.1 migration | done, except task 1.6 (1.1 settings formats) | #1 |
 | M2: read-only viewer | done | #1 |
-| M3: game assets | steps 1–6 done. **Step 7 (sprites) is next** | #2 |
+| M3: game assets | steps 1–6 and 7a (single-sprite entities) done. **Step 7b (belts, pipes) is next** | #2, #4 |
 | M4: analysis | not started | |
 | M5: editor | not started | |
 | M6: agent (ACP) | not started | |
@@ -39,14 +39,16 @@ src/core/                       pure TS (no DOM/Node/Electron; tsconfig.core.jso
   migrate/      1.1 → 2.x migration (renames copied from data/base/migrations)
   geometry/     16-way directions, rotate/mirror, footprints, SpatialIndex
   richtext/     rich text parser (never produces HTML)
-  prototypes/   PrototypeDb builder (db.ts), size lookups, categories, blueprintable filter
+  prototypes/   PrototypeDb builder (db.ts), size lookups, categories, blueprintable filter, FACING_TYPES
+  sprites/      graphics whitelist per type, dump → SpriteNode normaliser, SpriteResolver
   assets/       Steam VDF / config-path.cfg / config.ini parsers, factorio-asset:// URL build and parse
   generated/    entity-sizes.ts (from the dump; names/types/sizes only)
   ipc.ts        BridgeApi + channel names (the only renderer ⇄ main contract)
 src/main/       Electron main: ipc.ts, settings.ts, security.ts, assets/{locate,factorio,service,protocol}.ts
 src/preload/    contextBridge mapping of BridgeApi
 src/renderer/   React 19 + Zustand/Immer + Tailwind 4 + Radix dialog + PixiJS 8
-  canvas/       scene.ts (imperative Pixi), BlueprintCanvas.tsx (input), camera.ts, colors.ts
+  canvas/       scene.ts (imperative Pixi, sprite pools), textures.ts (sheet LRU), sprite-source.ts,
+                BlueprintCanvas.tsx (input), camera.ts, colors.ts
   panels/       BookTree, Inspector
   components/   Import/Export dialogs, RichText, Icon, KindBadge, GameDataStatus
   store/        documents.ts (open docs, selection), assets.ts (game data status, DB, icon lookup)
@@ -56,11 +58,11 @@ tests/unit/                     corpus-wide tests (codec, model, migration oracl
 tests/e2e/                      Playwright Electron; launch.ts gives each run an isolated FBE_USER_DATA
 ```
 
-Tests: 542 unit tests, 8 e2e tests, and 1 opt-in e2e test (`FBE_E2E_GAME=1`, loads real game data).
+Tests: 572 unit tests, 8 e2e tests, and 1 opt-in e2e test (`FBE_E2E_GAME=1`, loads real game data).
 
 ### What the app does today
 
-- Import by paste, the dialog, drag-and-drop or "Open file", including 1.1 strings (migrated on import). Book tree, footprint canvas with icons and direction arrows, inspector with raw JSON, and export of the whole book or the selected item, by copy or save.
+- Import by paste, the dialog, drag-and-drop or "Open file", including 1.1 strings (migrated on import). Book tree, canvas with real game sprites for 36 entity types when game data is loaded (footprints, icons and direction arrows for the rest and when zoomed out), inspector with raw JSON, and export of the whole book or the selected item, by copy or save.
 - Game data: detects the install. On "Load game data" it runs the dumps and caches the PrototypeDb and icons per game version, mods and format. Status-bar actions handle no-install, not-loaded, loading, ready and error.
 - **Read-only.** Nothing edits blueprints yet.
 
@@ -94,33 +96,16 @@ Tests: 542 unit tests, 8 e2e tests, and 1 opt-in e2e test (`FBE_E2E_GAME=1`, loa
 
 Each step below is one PR unless noted. The order matters where marked.
 
-### PR 3: M3 step 7a, sprite renderer for single-sprite entities
+### PR 3 (GitHub #4): M3 step 7a, sprite renderer for single-sprite entities. Done
 
-**Goal:** real game graphics instead of coloured boxes, for entities whose look depends only on their own direction, not their neighbours (spec 03 § Sprite definitions, spec 04 § Layer order).
+Real game graphics for entities whose look depends only on their own direction. Details are in spec 03 § Sprite definitions and spec 04 § Level of detail. What a follow-up step needs to know:
 
-1. **Sprite definitions in the DB.** Bump `DB_FORMAT_VERSION` to 2, so caches rebuild and the status bar offers "Load game data" again. Store a `graphics` object per entity: the raw graphics keys for the types in scope, such as `graphics_set`, `animation`, `picture`, `pictures`, `structure`, `platform_picture`, `hand_*_picture` and `sprites`. Keep the DB small by whitelisting keys per type.
-   - Consider generating TypeScript types for these from `doc-html/prototype-api.json` (plan task 1.4 deferred this). A small hand-written union is acceptable if documented.
-2. **Sprite shapes the dump uses**, all confirmed in the 2.1.25 dump:
-   - `{ filename, width, height, x?, y?, shift?, scale (0.5 for HR), line_length?, frame_count?, repeat_count?, direction_count?, variation_count?, draw_as_shadow?, tint?, blend_mode? }`;
-   - `{ layers: [...] }`;
-   - `{ sheet: {...} }` (direction-indexed sheet, e.g. inserter `platform_picture`);
-   - per-direction objects `{ north, east, south, west }` (e.g. splitter `structure`, mining drill `graphics_set.animation`);
-   - `filenames: [...]` with `lines_per_file`, for big animations such as the foundry;
-   - `stripes` (rare).
-   - Paths look like `__base__/graphics/...`. Use `dataUrl()` from `@core/assets` to get `factorio-asset://data/base/...`. `__core__/graphics/empty.png` means nothing to draw.
-3. **`SpriteResolver`** (pure, in `src/core/sprites/` or similar): `(entityProto, direction, frame=0) → SpriteLayer[]`, where each layer is `{ url, rect: {x,y,w,h} in the source image, offset (tiles), scale, tint?, isShadow }`. Frame and direction pick the sub-rect: `index = direction_index * frame_count + frame`, then `col = index % line_length`, `row = floor(index / line_length)`. Write unit tests with excerpts copied from the dump.
-4. **Types in scope:** `assembling-machine` (including `furnace` and `rocket-silo` via `graphics_set.animation`), `container` and `logistic-container`, `inserter` (platform only; the hand can come later), `electric-pole` (`pictures`, `direction_count: 4` is variation, not facing), `lab`, `beacon`, `mining-drill`, `boiler`, `generator`, `solar-panel`, `accumulator`, `radar`, `roboport`, `lamp`, combinators, `storage-tank`, `pump`, `offshore-pump`, `turret`s and `wall` (wall has neighbour variants; a single variant is fine here).
-5. **Renderer:**
-   - load textures lazily with `crossOrigin = 'anonymous'`, plus an LRU with a memory budget;
-   - sprite sub-textures via `new Texture({ source, frame })`;
-   - shadows in a layer under the bodies;
-   - bodies sorted by y within the layer;
-   - keep the footprint and icon fallback for anything the resolver doesn't handle and for unknown (modded) entities;
-   - level of detail: below about 16 px/tile, keep footprints and icons instead of sprites;
-   - catch sprite failures so a frame never stops (see the CORS story in §3).
-6. **Keep performance:** the 16,937-entity e2e test must stay at about 60 fps. Use a pool of sprites for visible entities only, like the icon pool in `scene.ts`.
-
-**Done when:** the provider station, science platform, nuclear plant and mall render with real sprites; screenshots are checked; unit tests cover the resolver for each sprite shape above; e2e is green.
+- **Code:** `src/core/sprites/` holds `graphics.ts` (per-type whitelist of graphics properties, in draw order), `normalize.ts` (dump JSON → `SpriteNode`, also the validation), `resolve.ts` (`resolveGraphics(parts, direction, frame)` → `SpriteLayer[]`) and `sprites.test.ts` (one test per sprite shape, with dump excerpts). Renderer: `canvas/textures.ts` (lazy sheets, sub-textures, LRU at 512 MB), `canvas/sprite-source.ts` (resolve once per name and direction) and three sprite pools in `scene.ts` (ground, shadows, bodies sorted by y).
+- **DB format 2** adds `EntityProto.graphics`, about 125 KB for vanilla plus expansions. 94 prototypes in 36 types have graphics. All of them were checked in 8 directions against the real PNG sizes (every rectangle inside its image).
+- **Adding a type** means one entry in `EXTRACTORS` in `graphics.ts`, plus a test. Space Age crafting machines (foundry, electromagnetic plant, …) already go through the generic crafting-machine extractor, so check them in PR 6 rather than starting from scratch.
+- **Sprite mode** starts at 16 px/tile with at most 6,000 visible entities. Measured on the 16,937-entity book with game data: 7.0 ms median frame both just above the threshold and further in (the 144 Hz display cap).
+- **Also fixed:** inserters, belts, loaders and pumps that face north have no `direction` in the blueprint (the default is omitted), and the layout used to treat them as non-directional, so they had no arrow. `FACING_TYPES` in `prototypes/sizes.ts` fixes that.
+- **Not done here** (picked up below): `mirror`, the inserter hand, belts, pipes, wall neighbours, rails, rolling stock, the remaining Space Age types, render-layer ordering (bodies are sorted by y only).
 
 ### PR 4: M3 step 7b, neighbour-aware belts, undergrounds, splitters, pipes and heat pipes
 
@@ -129,6 +114,8 @@ Each step below is one PR unless noted. The order matters where marked.
 - **Splitters:** `structure` plus `structure_patch` per direction, drawn over two belt tiles.
 - **Pipes:** `pictures` keys such as `straight_vertical`, `corner_up_right`, `t_down`, `cross` and `ending_*`. Pick them from the 4 neighbour connections. A full solution needs fluid box connection points from the prototypes (`fluid_boxes[].pipe_connections`); a first version can connect pipe to pipe plus anything with a fluid box on the touching side.
 - **Heat pipes:** same idea, with `connection_sprites`.
+- **Walls:** `pictures` has `single`, `straight_vertical`, `corner_*`, `t_up`, `ending_*` and `filling`, chosen from wall and gate neighbours. 7a draws `single` for every wall.
+- **Resolver input:** today the renderer calls `resolveGraphics(parts, direction)` once per prototype and direction (`canvas/sprite-source.ts`). Neighbour-aware shapes need a per-entity call with the neighbour query, and a cache key that includes the chosen shape.
 - Add a neighbour query (spatial index by tile) to the resolver input.
 
 ### PR 5: M3 step 7c, rails, signals and rolling stock
@@ -144,6 +131,8 @@ Each step below is one PR unless noted. The order matters where marked.
 - Foundry, electromagnetic plant, cryogenic plant, biochamber, agricultural tower, recycler, crusher, asteroid collector, thruster, cargo bay, space platform hub, fusion reactor and generator, lightning rods.
 - `mirror: true` (horizontal flip of the sprite plus mirrored fluid boxes) appears in `mirrored_oil_refineries.txt`.
 - An optional "animate" toggle (spec 04), and tile sprites (concrete, foundations) instead of flat colour.
+- The inserter hand (`hand_base_picture`, `hand_open_picture` and shadows, placed from `pickup_position` / `insert_position`); then inserters can drop their arrow in sprite mode.
+- Body ordering by the prototype's render layer before y (spec 04 § Layer order). Today bodies are sorted by y only, so for example an artillery barrel can draw over the rocket silo above it.
 
 ### PR 7: M1 task 1.6, migrate 1.1 entity settings (independent; can go any time before M4's circuit work)
 

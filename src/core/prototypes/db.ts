@@ -1,5 +1,7 @@
 import { NOT_BLUEPRINTABLE_TYPES, tileSizeOf } from './blueprintable'
 import type { PrototypeLookup } from './sizes'
+import { entityGraphics } from '../sprites/graphics'
+import type { GraphicsPart } from '../sprites/types'
 
 /**
  * Compact prototype database built from Factorio's `data-raw-dump.json`.
@@ -8,7 +10,7 @@ import type { PrototypeLookup } from './sizes'
  * Bump DB_FORMAT_VERSION whenever the shape or contents change, so cached
  * databases are rebuilt.
  */
-export const DB_FORMAT_VERSION = 1
+export const DB_FORMAT_VERSION = 2
 
 export type BoxTuple = [[number, number], [number, number]]
 
@@ -18,6 +20,8 @@ export interface EntityProto {
   height: number
   collisionBox?: BoxTuple
   selectionBox?: BoxTuple
+  /** Static sprite definitions for the types in `SPRITE_TYPES` (format 2+). */
+  graphics?: GraphicsPart[]
 }
 
 export interface ItemProto {
@@ -163,11 +167,13 @@ export function buildPrototypeDb(
       const size = tileSizeOf(proto as Parameters<typeof tileSizeOf>[0])
       const collisionBox = box(proto['collision_box'])
       const selectionBox = box(proto['selection_box'])
+      const graphics = entityGraphics(type, proto)
       entities[name] = {
         type,
         ...size,
         ...(collisionBox ? { collisionBox } : {}),
-        ...(selectionBox ? { selectionBox } : {})
+        ...(selectionBox ? { selectionBox } : {}),
+        ...(graphics ? { graphics } : {})
       }
     }
   }

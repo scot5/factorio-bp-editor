@@ -49,6 +49,20 @@ describe('layoutBlueprint', () => {
     expect(layout.entities[1]!.directional).toBe(true)
   })
 
+  it('treats inserters without a direction as facing north (the omitted default)', () => {
+    const layout = layoutBlueprint(
+      bp([
+        { entity_number: 1, name: 'inserter', position: { x: 0.5, y: 0.5 } },
+        { entity_number: 2, name: 'assembling-machine-3', position: { x: 3.5, y: 1.5 } }
+      ]),
+      lookup
+    )
+    expect(layout.entities.map((e) => [e.direction, e.directional])).toEqual([
+      [0, true],
+      [0, false]
+    ])
+  })
+
   it('lays rolling stock along its orientation', () => {
     const layout = layoutBlueprint(
       bp([

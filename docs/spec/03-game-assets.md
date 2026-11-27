@@ -70,6 +70,8 @@ Rebuild the cache when the game version or mod set changes, or when the user ask
 
 `doc-html/prototype-api.json` describes every prototype type and property in machine-readable form. Use it at build time to generate TypeScript types for the parts of the dump the app reads. Do not hand-write them.
 
+Exception, decided in M3 step 7a: the DB builder reads the dump as `unknown` and **normalises** what it keeps into the app's own compact types (`EntityProto`, `SpriteNode` in `src/core/sprites/types.ts`). Those are our cache format, not the game's prototype types, so they are written by hand. Generated prototype types would not remove the runtime validation that untrusted JSON needs, so generation is deferred until a feature reads many more prototype properties (M4 analysis is the likely point).
+
 ## Graphics
 
 ### Asset protocol
@@ -92,7 +94,23 @@ Sprite paths in the dump look like `__base__/graphics/…`. The `__mod__` prefix
 
 The dump gives each sprite as `filename`, `width`, `height`, `x`, `y`, `scale`, `shift`, `frame_count`, `line_length`, `direction_count`, and either `layers` or `stripes`. Since 2.0, every graphic is high resolution with `scale = 0.5` (64 px per tile at scale 1). In 2.1, many sheets also have a `.lua` sidecar next to the `.png` (for example `assembling-machine-1-base.lua` → `{ width, height, shift, line_length }`). The dump already includes those values, so the sidecars need no parsing.
 
-The renderer's `SpriteResolver` maps `(entity prototype, direction, variant)` to a list of layers `{ texture, frame rect, offset, scale, tint, blendMode, isShadow }`. Coverage is incremental, by prototype type:
+The renderer's `SpriteResolver` maps `(entity prototype, direction, variant)` to a list of layers `{ texture, frame rect, offset, scale, tint, blendMode, isShadow }`.
+
+**Implementation (M3 step 7a, `src/core/sprites/`):**
+
+- **What is stored.** `graphics.ts` lists, per prototype type, the graphics properties that make up the entity's *static* look, in draw order (for example `graphics_set.animation` plus `always_draw` working visualisations for crafting machines, `platform_picture` for inserters, `robot_door.animation` for logistic chests, `folded_animation` over the base for turrets). Only those are copied into the PrototypeDb (`EntityProto.graphics`, DB format 2). Sounds, working lights, recipe-tinted fluids and working-only animations are left out. The vanilla + expansions dump adds about 125 KB.
+- **Normalisation.** `normalize.ts` turns each value into one of four node kinds: a sprite leaf, `layers`, `directions` (`north` / `north_east` / … keys) or `sheet` (`SpriteNWaySheet`, `frames` default 4). Defaults are omitted. `draw_as_light` layers and `__core__/graphics/empty.png` are dropped. An array (variations) uses its first element. A part may be marked `ground` (integration patches) or `fixedRotation` (electric pole `pictures` and the radar dish, whose `direction_count` is not the facing).
+- **Resolution** (`resolve.ts`), confirmed against the 2.1.25 dump and the PNG sizes:
+  - Per-direction objects: the exact 8-way key, then the cardinal, then the opposite direction (the steam engine only has `north` and `east`), then `north`.
+  - Sheets: the frame is the 4-way index (`frames` 2: N/S share frame 0, E/W frame 1; `frames` 8: 8-way index), laid out horizontally.
+  - Rotated sheets: `dir_index = round(direction / 16 × direction_count)`, `index = dir_index × frame_count + frame`, `col = index mod line_length`, `row = ⌊index / line_length⌋`. A missing or 0 `line_length` means one row per direction (`frame_count` wide), or all directions/variations in one row when there is one frame (medium pole: 4 variations in a row; gun turret raising: 5 frames × 4 directions).
+  - `filenames` continue the index across files, `lines_per_file × line_length` frames each (artillery cannon: 8 files × 32 orientations). `stripes` continue it across stripes, `width_in_frames × height_in_frames` each (gun turret shooting: 4 stripes of 16 orientations).
+  - Frame 0 by default. `repeat_count` holds each frame for that many ticks.
+  - `apply_runtime_tint` masks (turrets) are tinted with the game's default player colour.
+  - Output layer: `{ url, rect, shift (tiles), scale, tint?, additive?, shadow, ground }`. On screen a layer is `rect × scale / 32` tiles, centred at the entity centre plus `shift`.
+- **Not yet handled:** `mirror` (flipped sprites and fluid boxes), neighbour-dependent shapes (belts, pipes, walls beyond the single piece, rails), rolling stock and the remaining types. These are the next steps (see `docs/plan/remaining-work.md`).
+
+Coverage is incremental, by prototype type:
 
 | Priority | Types |
 | --- | --- |
@@ -105,7 +123,7 @@ Belts and pipes need **connection-aware** sprites: a belt's curve depends on its
 
 ### Texture loading
 
-- Load sprite sheets lazily, only those visible entities need. Keep an LRU of GPU textures with a memory budget.
+- Load sprite sheets lazily, only those visible entities need. Keep an LRU of GPU textures with a memory budget. Implemented in `src/renderer/canvas/textures.ts`: 512 MB of decoded RGBA, evicting sheets not used in the current frame down to 80 %. A frame rectangle outside its image is treated as a failed layer (fallback), never drawn.
 - Large sheets (for example 2048×2560 belts) are fine as single textures. Cut frames as sub-textures.
 - Static frame by default (frame 0, or the idle frame). Optional "animate" toggle (M7).
 - Icons: pack dumped icons into one atlas at cache-build time for fast UI and minimap use.
