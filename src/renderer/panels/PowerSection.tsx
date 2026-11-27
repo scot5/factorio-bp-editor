@@ -182,7 +182,10 @@ function SurfacePicker({
   const auto = report.surface.space ? 'space platform' : planetName(report.surface.planet)
 
   const change = (v: string): void => {
-    const next: AnalysisSettings = { timeUnit: settings.timeUnit }
+    // Keep the other settings (time unit, production assumptions).
+    const next: AnalysisSettings = { ...settings }
+    delete next.planet
+    delete next.space
     if (v) {
       const [planet, space] = v.split(':')
       next.planet = planet ?? 'nauvis'

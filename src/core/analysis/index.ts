@@ -1,12 +1,15 @@
 import { layoutBlueprint, type Blueprint } from '../model'
 import { dbPrototypeLookup, fallbackPrototypeLookup, type PrototypeDb } from '../prototypes'
+import type { TimeUnit } from './format'
 import { inventory, type InventoryReport } from './inventory'
-import { power, type PowerReport } from './power'
+import { isSpacePlatform, power, type PowerReport } from './power'
+import { production, surfaceProperties, type ProductionReport } from './production'
 
 export * from './effects'
 export * from './format'
 export * from './inventory'
 export * from './power'
+export * from './production'
 
 /**
  * Blueprint analysis (docs/spec/06-analysis.md). A pure function of
@@ -14,11 +17,13 @@ export * from './power'
  */
 
 export interface AnalysisSettings {
-  timeUnit: 'second' | 'minute' | 'hour'
-  /** Planet the blueprint is built on, for solar output (default `nauvis`). */
+  timeUnit: TimeUnit
+  /** Planet the blueprint is built on, for solar output and surface conditions (default `nauvis`). */
   planet?: string
   /** Built on a space platform in the planet's orbit; undefined detects it from the blueprint. */
   space?: boolean
+  /** Recipe (furnaces) or resource (mining drills) assumed per entity name; see `ProductionSettings`. */
+  assume?: Record<string, string>
 }
 
 export const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = { timeUnit: 'minute' }
@@ -26,11 +31,13 @@ export const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = { timeUnit: 'minute' 
 export interface AnalysisResult {
   /** Whether game data was available; rate-based reports need it. */
   hasGameData: boolean
-  /** Time unit of the rate reports (M4 PR 3). */
-  timeUnit: AnalysisSettings['timeUnit']
+  /** Time unit the UI shows rates in; report rates are per second. */
+  timeUnit: TimeUnit
   inventory: InventoryReport
   /** Needs game data; null without it. */
   power: PowerReport | null
+  /** Needs game data; null without it. */
+  production: ProductionReport | null
 }
 
 export function analyse(
@@ -39,6 +46,8 @@ export function analyse(
   settings: AnalysisSettings = DEFAULT_ANALYSIS_SETTINGS
 ): AnalysisResult {
   const layout = layoutBlueprint(blueprint, db ? dbPrototypeLookup(db) : fallbackPrototypeLookup)
+  const planet = settings.planet ?? 'nauvis'
+  const space = db ? (settings.space ?? isSpacePlatform(db, layout)) : false
   return {
     hasGameData: db !== null,
     timeUnit: settings.timeUnit,
@@ -47,6 +56,12 @@ export function analyse(
       ? power(db, layout, {
           ...(settings.planet ? { planet: settings.planet } : {}),
           ...(settings.space === undefined ? {} : { space: settings.space })
+        })
+      : null,
+    production: db
+      ? production(db, layout, {
+          surface: surfaceProperties(db, planet, space),
+          ...(settings.assume ? { assume: settings.assume } : {})
         })
       : null
   }

@@ -137,9 +137,91 @@ describe('buildPrototypeDb', () => {
       { gameVersion: '2.1.25', mods: [] }
     )
     expect(withPlanets.planets).toEqual({
-      nauvis: { solarPower: 100, solarPowerInSpace: 300 },
-      aquilo: { solarPower: 1, solarPowerInSpace: 60 },
+      nauvis: {
+        solarPower: 100,
+        solarPowerInSpace: 300,
+        properties: { 'day-night-cycle': 25200 }
+      },
+      aquilo: { solarPower: 1, solarPowerInSpace: 60, properties: { 'solar-power': 1 } },
       edge: { solarPower: 100 }
+    })
+  })
+
+  it('reads surface property defaults and the space platform surface', () => {
+    const withSurfaces = buildPrototypeDb(
+      {
+        'surface-property': {
+          pressure: { name: 'pressure', default_value: 1000 },
+          gravity: { name: 'gravity', default_value: 10 }
+        },
+        surface: {
+          'space-platform': {
+            name: 'space-platform',
+            surface_properties: { gravity: 0, pressure: 0, label: 'not a number' }
+          }
+        }
+      } as never,
+      { gameVersion: '2.1.25', mods: [] }
+    )
+    expect(withSurfaces.surfaces).toEqual({
+      defaults: { pressure: 1000, gravity: 10 },
+      platform: { gravity: 0, pressure: 0 }
+    })
+    expect(db.surfaces).toEqual({ defaults: {}, platform: {} })
+  })
+
+  it('reads resources with their mining products', () => {
+    const withResources = buildPrototypeDb(
+      {
+        resource: {
+          'iron-ore': {
+            name: 'iron-ore',
+            collision_box: [
+              [-0.1, -0.1],
+              [0.1, 0.1]
+            ],
+            minable: { mining_time: 1, result: 'iron-ore' }
+          },
+          'uranium-ore': {
+            name: 'uranium-ore',
+            minable: {
+              mining_time: 2,
+              result: 'uranium-ore',
+              count: 2,
+              fluid_amount: 10,
+              required_fluid: 'sulfuric-acid'
+            }
+          },
+          'crude-oil': {
+            name: 'crude-oil',
+            category: 'basic-fluid',
+            infinite: true,
+            minable: { mining_time: 1, results: [{ type: 'fluid', name: 'crude-oil', amount: 10 }] }
+          },
+          rock: { name: 'rock' }
+        }
+      } as never,
+      { gameVersion: '2.1.25', mods: [] }
+    )
+    expect(withResources.resources).toEqual({
+      'iron-ore': {
+        category: 'basic-solid',
+        miningTime: 1,
+        results: [{ type: 'item', name: 'iron-ore', amount: 1 }]
+      },
+      'uranium-ore': {
+        category: 'basic-solid',
+        miningTime: 2,
+        results: [{ type: 'item', name: 'uranium-ore', amount: 2 }],
+        requiredFluid: 'sulfuric-acid',
+        fluidAmount: 10
+      },
+      'crude-oil': {
+        category: 'basic-fluid',
+        miningTime: 1,
+        results: [{ type: 'fluid', name: 'crude-oil', amount: 10 }],
+        infinite: true
+      }
     })
   })
 
@@ -201,14 +283,116 @@ describe('buildPrototypeDb', () => {
 
   it('normalises recipes, with defaults and the short ingredient form', () => {
     expect(db.recipes['iron-gear-wheel']).toEqual({
-      category: 'crafting',
+      categories: ['crafting'],
       energy: 0.5,
       ingredients: [{ type: 'item', name: 'iron-plate', amount: 2 }],
       results: [{ type: 'item', name: 'iron-gear-wheel', amount: 1 }]
     })
     expect(db.recipes['basic-oil-processing']!.ingredients[0]!.type).toBe('fluid')
+    // 1.x / 2.0 `category`.
+    expect(db.recipes['basic-oil-processing']!.categories).toEqual(['oil-processing'])
     expect(db.recipes['legacy']!.ingredients).toEqual([
       { type: 'item', name: 'iron-plate', amount: 3 }
+    ])
+  })
+
+  it('reads 2.1 recipe fields: categories, probabilities, productivity, surface conditions', () => {
+    const r = buildPrototypeDb(
+      {
+        recipe: {
+          crushing: {
+            name: 'crushing',
+            categories: ['crushing'],
+            energy_required: 2,
+            ingredients: [{ type: 'item', name: 'chunk', amount: 1, ignored_by_stats: 1 }],
+            results: [
+              { type: 'item', name: 'iron-ore', amount: 20 },
+              {
+                type: 'item',
+                name: 'chunk',
+                amount: 1,
+                independent_probability: 0.3,
+                ignored_by_stats: 1
+              }
+            ],
+            allow_productivity: true
+          },
+          uranium: {
+            name: 'uranium',
+            categories: ['centrifuging'],
+            ingredients: [{ type: 'item', name: 'uranium-ore', amount: 10 }],
+            results: [
+              { type: 'item', name: 'u235', amount: 1, shared_probability: { min: 0, max: 0.25 } },
+              { type: 'item', name: 'u238', amount: 1, shared_probability: { min: 0.25, max: 1 } }
+            ]
+          },
+          kovarex: {
+            name: 'kovarex',
+            results: [
+              {
+                type: 'item',
+                name: 'u235',
+                amount: 41,
+                ignored_by_stats: 40,
+                ignored_by_productivity: 40
+              }
+            ],
+            maximum_productivity: 0.5,
+            surface_conditions: [
+              { property: 'pressure', min: 2000, max: 2000 },
+              { property: 'gravity', max: 0 },
+              {}
+            ]
+          },
+          recycling: {
+            name: 'recycling',
+            hidden: true,
+            results: [{ type: 'item', name: 'iron-plate', amount: 0, extra_count_fraction: 0.5 }]
+          },
+          'parameter-0': {
+            name: 'parameter-0',
+            categories: ['parameters'],
+            parameter: true,
+            results: {}
+          },
+          ranged: {
+            name: 'ranged',
+            results: [
+              { type: 'item', name: 'gear', amount_min: 1, amount_max: 4, probability: 0.5 }
+            ]
+          }
+        }
+      } as never,
+      { gameVersion: '2.1.25', mods: [] }
+    ).recipes
+    expect(r['crushing']).toEqual({
+      categories: ['crushing'],
+      energy: 2,
+      ingredients: [{ type: 'item', name: 'chunk', amount: 1 }],
+      results: [
+        { type: 'item', name: 'iron-ore', amount: 20 },
+        { type: 'item', name: 'chunk', amount: 1, probability: 0.3, ignoredByProductivity: 1 }
+      ],
+      allowProductivity: true
+    })
+    expect(r['uranium']!.results.map((p) => p.probability)).toEqual([0.25, 0.75])
+    expect(r['uranium']!.allowProductivity).toBeUndefined()
+    expect(r['kovarex']).toMatchObject({
+      categories: ['crafting'],
+      results: [{ amount: 41, ignoredByProductivity: 40 }],
+      maximumProductivity: 0.5,
+      surfaceConditions: [
+        { property: 'pressure', min: 2000, max: 2000 },
+        { property: 'gravity', max: 0 }
+      ]
+    })
+    expect(r['recycling']).toMatchObject({
+      hidden: true,
+      results: [{ amount: 0, extraCountFraction: 0.5 }]
+    })
+    expect(r['parameter-0']).toMatchObject({ hidden: true, results: [] })
+    expect(r['ranged']!.results).toEqual([
+      { type: 'item', name: 'gear', amount: 2.5, probability: 0.5 }
     ])
   })
 

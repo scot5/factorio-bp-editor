@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatJoules, formatSi, formatWatts } from './format'
+import { formatJoules, formatRate, formatSi, formatWatts } from './format'
 
 describe('formatSi', () => {
   it('uses three significant digits and SI prefixes', () => {
@@ -13,5 +13,18 @@ describe('formatSi', () => {
     expect(formatJoules(5e6)).toBe('5 MJ')
     expect(formatSi(-1500, 'W')).toBe('-1.5 kW')
     expect(formatSi(Number.NaN, 'W')).toBe('– W')
+  })
+})
+
+describe('formatRate', () => {
+  it('scales to the time unit with three significant digits', () => {
+    expect(formatRate(0.5, 'minute')).toBe('30/min')
+    expect(formatRate(0.75, 'second')).toBe('0.75/s')
+    expect(formatRate(1 / 3, 'second')).toBe('0.333/s')
+    expect(formatRate(1 / 3, 'hour')).toBe('1.2k/h')
+    expect(formatRate(-2.5, 'minute')).toBe('-150/min')
+    expect(formatRate(1e-9, 'second')).toBe('0/s')
+    expect(formatRate(-1e-9, 'second')).toBe('0/s')
+    expect(formatRate(200, 'hour')).toBe('720k/h')
   })
 })

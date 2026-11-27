@@ -43,6 +43,8 @@ export interface EntityStats {
   placeableBy?: ItemCount[]
   craftingSpeed?: number
   craftingCategories?: string[]
+  /** Crafting machines whose recipe cannot change: rocket silo, captive spawner (format 9+). */
+  fixedRecipe?: string
   moduleSlots?: number
   /** Effects modules and beacons may apply. Present for types with module slots. */
   allowedEffects?: ModuleEffect[]
@@ -318,6 +320,7 @@ export function entityStats(
     placeableBy: itemCounts(proto['placeable_by']),
     craftingSpeed: num(proto['crafting_speed']),
     craftingCategories: strings(proto['crafting_categories']),
+    fixedRecipe: typeof proto['fixed_recipe'] === 'string' ? proto['fixed_recipe'] : undefined,
     ...(MODULE_TYPES.has(type) ? moduleStats(type, proto) : {}),
     baseEffect: effects(receiver?.['base_effect']),
     energyUsage: energyUsage(type, proto),
@@ -393,6 +396,8 @@ export interface ItemStats {
   fuelCategories?: string[]
   /** Tile this item places (`place_as_tile.result`). */
   placeAsTile?: string
+  /** Ticks until the item spoils (format 9+). */
+  spoilTicks?: number
   /** Module items. */
   module?: { category: string; tier: number; effect: Partial<Record<ModuleEffect, number>> }
 }
@@ -408,6 +413,8 @@ export function itemStats(type: string, proto: Record<string, unknown>): ItemSta
   }
   const tile = (proto['place_as_tile'] as Record<string, unknown> | undefined)?.['result']
   if (typeof tile === 'string') s.placeAsTile = tile
+  const spoil = num(proto['spoil_ticks'])
+  if (spoil) s.spoilTicks = spoil
   if (type === 'module' && typeof proto['category'] === 'string') {
     s.module = {
       category: proto['category'],

@@ -42,6 +42,22 @@ interface AnalysisSettings {
 
 This is steady-state rate math. It does **not** trace which belt carries what. Belt-level flow tracing is a stretch goal (overlay "belt flow" in [04](04-visualization.md)).
 
+**Implemented in M4 plan step 3** (`src/core/analysis/production.ts`; fields in 03 § Production fields):
+
+- **Needs game data.** Without a DB, `AnalysisResult.production` is `null` and the panel says "Requires game data". Rates are per second in the report; the panel shows them per second, minute (default) or hour (`AnalysisSettings.timeUnit`, a picker in the section).
+- **Crafting machines** (assembling machines, furnaces, rocket silo): the recipe is the prototype's `fixed_recipe`, else the blueprint's `recipe`. Speed = `crafting_speed` × quality `crafting_machine_speed` × max(0.2, 1 + speed effect); crafts per second = speed / recipe `energy_required`. Productivity = the productivity effect clamped to 0 … `maximum_productivity`, and 0 when the recipe does not `allow_productivity` (this also drops the foundry's, EM plant's and biochamber's base +50 %). Effects come from `entityEffects` (modules, beacons, base effect; see § 4).
+- **Products per craft:** `probability × (amount + extra + (max(0, amount − ignored_by_productivity) + extra) × productivity)`, extra = `extra_count_fraction`. Ingredients are used at their amount.
+- **Furnaces** have no recipe in blueprints, and a **mining drill's** resource depends on the patch under it. They are listed under "No rate" until the user picks what to assume per entity name (`AnalysisSettings.assume`): a furnace offers the visible recipes of its categories (recyclers: only scrap recycling, since the other recycling recipes are hidden), a drill the finite resources of its categories that yield items. A drill whose only resources are fluids or infinite (pumpjack) shows "output depends on the patch". Assumed rows are marked "(assumed)" and shown dimmed. Assembling machines with no recipe, `parameter-N` placeholder recipes and recipes the DB does not know are listed there too, without a choice.
+- **Drills:** speed = `mining_speed` × max(0.2, 1 + speed) (quality does not change it, see 03); cycles per second = speed / `mining_time`; products × (1 + productivity, not capped). A required fluid is used at `fluid_amount / 10` per cycle (uranium: 1 sulfuric acid per ore, as the wiki states; unverified in game).
+- **Quality:** a machine's `recipe_quality` is the quality of its item ingredients and products (quality rolls from quality modules are not modelled). Flows are kept per item or fluid and quality; fluids have none.
+- **Catalysts:** an item a machine both uses and makes counts by its net amount for that machine, as the game's statistics do with `ignored_by_stats`: a crusher only uses 0.7 chunks per craft, kovarex makes 1 U-235.
+- **Flows** are shown as **Outputs** (net > 0), **Inputs** (net < 0) and **Balanced** (made and used at the same rate, within 10⁻⁶). Each row selects its producers (outputs, balanced) or consumers (inputs). Items that spoil are marked "(spoils)".
+- **Ratio check:** for each flow both made and used inside the blueprint, supply = made / used. Below 99 % it is listed under **Under-supplied** (selects the consumers), above 101 % under **Surplus** (selects the producers).
+- **Surface conditions:** recipes whose `surface_conditions` the surface fails are listed under "Surface conditions not met", with the surface's value. The surface is the one the Power section's picker sets (Auto: the Nauvis orbit for a detected space platform, else Nauvis); its properties are the `surface-property` defaults overlaid with the planet's or the platform's own.
+- **Machine rows** are per machine name, quality, recipe (or resource) and recipe quality, with the summed crafts per second and the mean speed and productivity. A recipe run by more than one machine type names the machine in its label.
+- **Measured:** the production report takes about 3 ms on the 16,937-entity Step 7 of the rocket book (furnace and drill options are computed once per entity name per run).
+- **Not done:** labs and research, boilers, offshore pumps and other fluid producers outside recipes, agricultural towers, asteroid collectors, quality output distributions, research productivity bonuses, burner fuel consumption, and spoilage beyond the marker.
+
 ### 3. Logistics
 
 - Belt throughput per belt tier, taking belt stacking into account (Space Age stack inserters, research `beltStackSize`).
