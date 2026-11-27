@@ -1,11 +1,14 @@
 import type { BlueprintLayout } from '@core/model'
 import type { PrototypeDb } from '@core/prototypes'
 import {
+  drawsFlipped,
+  graphicsFor,
   graphicsOptionsFor,
   graphicsOptionsKey,
   pickShape,
   resolveGraphics,
   resolveShape,
+  resolveTile,
   shapeKey,
   tileIndex,
   type Shape,
@@ -38,7 +41,7 @@ export function spriteSourceFor(
 ): SpriteSource {
   const { db, cache } = resolver
   let at: TileQuery | undefined
-  return (e) => {
+  const entity: SpriteSource['entity'] = (e) => {
     if (!e.known) return null
     const proto = db.entities[e.entity.name]
     if (!proto || (!proto.graphics && !proto.shapes)) return null
@@ -52,17 +55,24 @@ export function spriteSourceFor(
       e.entity.name,
       e.direction,
       shape ? shapeKey(shape) : '',
-      graphicsOptionsKey(options)
+      graphicsOptionsKey(options),
+      drawsFlipped(proto, e) ? 'm' : ''
     ].join('\u0000')
     let layers = cache.get(key)
     if (layers === undefined) {
+      const graphics = graphicsFor(proto, e)
       layers = shape
         ? resolveShape(proto, e.direction, shape)
-        : proto.graphics
-          ? resolveGraphics(proto.graphics, e.direction, options)
+        : graphics
+          ? resolveGraphics(graphics, e.direction, options)
           : null
       cache.set(key, layers)
     }
     return layers
   }
+  const tile: SpriteSource['tile'] = (t) => {
+    const g = db.tileGraphics?.[t.name]
+    return g ? resolveTile(g, t.x, t.y) : null
+  }
+  return { entity, tile }
 }

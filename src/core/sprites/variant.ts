@@ -3,6 +3,10 @@ import type { EntityProto } from '../prototypes/db'
 import { ROLLING_STOCK_TYPES } from '../prototypes/sizes'
 import { color } from './normalize'
 import type { GraphicsOptions } from './resolve'
+import type { GraphicsPart } from './types'
+
+/** Types drawn from their `orientation` (0–1) rather than a direction. */
+const ORIENTED_TYPES: ReadonlySet<string> = new Set([...ROLLING_STOCK_TYPES, 'car'])
 
 /**
  * What else besides the prototype and direction decides an entity's static
@@ -13,11 +17,21 @@ import type { GraphicsOptions } from './resolve'
 export function graphicsOptionsFor(proto: EntityProto, e: EntityLayout): GraphicsOptions {
   const out: GraphicsOptions = {}
   const { orientation } = e.entity
-  if (ROLLING_STOCK_TYPES.has(proto.type) && typeof orientation === 'number')
+  if (ORIENTED_TYPES.has(proto.type) && typeof orientation === 'number')
     out.orientation = orientation
   if (e.entity['rail_layer'] === 'elevated') out.railLayer = 'elevated'
   if (proto.color) out.runtimeTint = color(e.entity['color']) ?? proto.color
   return out
+}
+
+/** Whether a mirrored entity draws its prototype's flipped graphics. */
+export function drawsFlipped(proto: EntityProto, e: EntityLayout): boolean {
+  return e.entity['mirror'] === true && proto.graphicsFlipped !== undefined
+}
+
+/** The static graphics an entity draws: the flipped set when it is mirrored and has one. */
+export function graphicsFor(proto: EntityProto, e: EntityLayout): GraphicsPart[] | undefined {
+  return drawsFlipped(proto, e) ? proto.graphicsFlipped : proto.graphics
 }
 
 /** Cache key of graphics options; empty for the common case. */

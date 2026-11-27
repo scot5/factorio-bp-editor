@@ -1,5 +1,7 @@
+import { drawLayerFor } from './layers'
 import {
   DIRECTION_KEYS,
+  type DrawLayer,
   type DirectionKey,
   type SpriteLeaf,
   type SpriteNode,
@@ -20,32 +22,38 @@ import {
  *   { north, east, south, west, … }            per-direction objects
  *   { north, northeast, … }                    RailPictureSet / Sprite16Way keys
  *   [ ... ]                                    variations (the first is used)
+ *
+ * A `render_layer` on a sprite or on any object around it (LayeredSprite,
+ * …WithRenderLayer) is kept on the leaves as their draw pass.
  */
-export function normalizeSprite(value: unknown): SpriteNode | null {
+export function normalizeSprite(value: unknown, inherited?: DrawLayer): SpriteNode | null {
   if (Array.isArray(value)) {
     for (const item of value) {
-      const node = normalizeSprite(item)
+      const node = normalizeSprite(item, inherited)
       if (node) return node
     }
     return null
   }
   if (!isRecord(value)) return null
+  const layer =
+    typeof value['render_layer'] === 'string' ? drawLayerFor(value['render_layer']) : inherited
+  const child = (v: unknown): SpriteNode | null => normalizeSprite(v, layer)
 
-  if (Array.isArray(value['layers'])) return layers(value['layers'].map(normalizeSprite))
+  if (Array.isArray(value['layers'])) return layers(value['layers'].map(child))
 
-  if (Array.isArray(value['sheets'])) return layers(value['sheets'].map(sheet))
-  if (isRecord(value['sheet'])) return sheet(value['sheet'])
+  if (Array.isArray(value['sheets'])) return layers(value['sheets'].map((v) => sheet(v, layer)))
+  if (isRecord(value['sheet'])) return sheet(value['sheet'], layer)
 
   if (DIRECTION_KEYS.some((k) => isRecord(value[k] ?? value[RAIL_KEYS[k]]))) {
     const directions: Partial<Record<DirectionKey, SpriteNode>> = {}
     for (const key of DIRECTION_KEYS) {
-      const node = normalizeSprite(value[key] ?? value[RAIL_KEYS[key]])
+      const node = child(value[key] ?? value[RAIL_KEYS[key]])
       if (node) directions[key] = node
     }
     return Object.keys(directions).length ? { kind: 'directions', directions } : null
   }
 
-  return leaf(value)
+  return leaf(value, layer)
 }
 
 /** RailPictureSet and Sprite16Way spell the diagonals without an underscore. */
@@ -66,9 +74,9 @@ function layers(nodes: (SpriteNode | null)[]): SpriteNode | null {
   return present.length === 1 ? present[0]! : { kind: 'layers', layers: present }
 }
 
-function sheet(value: unknown): SpriteNode | null {
+function sheet(value: unknown, layer: DrawLayer | undefined): SpriteNode | null {
   if (!isRecord(value)) return null
-  const sprite = normalizeSprite(value)
+  const sprite = normalizeSprite(value, layer)
   if (!sprite) return null
   const frames = positiveInt(value['frames']) ?? 4
   return { kind: 'sheet', frames, sprite }
@@ -76,7 +84,7 @@ function sheet(value: unknown): SpriteNode | null {
 
 const EMPTY_FILES = new Set(['__core__/graphics/empty.png'])
 
-function leaf(value: Record<string, unknown>): SpriteLeaf | null {
+function leaf(value: Record<string, unknown>, layer: DrawLayer | undefined): SpriteLeaf | null {
   // Lights are additive glows drawn into the light map; a static view has none.
   if (value['draw_as_light'] === true) return null
 
@@ -144,7 +152,8 @@ function leaf(value: Record<string, unknown>): SpriteLeaf | null {
     ...(value['apply_runtime_tint'] === true ? { runtimeTint: true as const } : {}),
     ...(typeof value['blend_mode'] === 'string' && value['blend_mode'].startsWith('additive')
       ? { additive: true as const }
-      : {})
+      : {}),
+    ...(layer && layer !== 'object' ? { layer } : {})
   }
 }
 

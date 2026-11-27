@@ -6,7 +6,7 @@ Guidance for working in this repository. Read this first, then the spec section 
 
 An Electron + React (Vite) desktop app to analyse, visualise and edit Factorio blueprint strings, with an optional Claude agent connected over ACP. The spec in [docs/spec/](docs/spec/README.md) is the source of truth for behaviour and architecture.
 
-Status: Phase 0, M1, M2, M3 steps 1–6 and steps 7a–7c are done (read-only viewer with game data, icons, and sprites for single-sprite entities, belts, pipes, heat pipes, walls, rails, signals, train stops and rolling stock). **Start with `docs/plan/remaining-work.md`** if it exists: a local handoff plan with the current state, environment facts, lessons learned, and the remaining work as PR-sized steps (history is in `docs/plan/implementation-plan.md`). Update both as work lands. **`docs/plan/` is local only and gitignored: never commit it.** Only specs (`docs/spec/`) are committed. Work **one PR per step**: push, open the PR, and wait for the user to merge before starting the next step.
+Status: Phase 0, M1, M2 and M3 are done (read-only viewer with game data, icons, and game sprites for nearly every entity type, including belts, pipes, walls, rails, trains, Space Age buildings, inserter hands and tiles). **Start with `docs/plan/remaining-work.md`** if it exists: a local handoff plan with the current state, environment facts, lessons learned, and the remaining work as PR-sized steps (history is in `docs/plan/implementation-plan.md`). Update both as work lands. **`docs/plan/` is local only and gitignored: never commit it.** Only specs (`docs/spec/`) are committed. Work **one PR per step**: push, open the PR, and wait for the user to merge before starting the next step.
 
 ## Read the spec before you change code
 

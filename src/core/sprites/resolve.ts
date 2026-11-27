@@ -1,4 +1,5 @@
 import { dataUrl } from '../assets/asset-url'
+import { armPose } from './inserter'
 import {
   DIRECTION_KEYS,
   type RailLayer,
@@ -62,10 +63,17 @@ export function resolveGraphics(
       const [ox, oy] = offset ?? [0, 0]
       offset = [ox + Math.sin(o) * part.along, oy - Math.cos(o) * part.along]
     }
+    const arm = part.arm ? armPose(part.arm.piece, direction, part.arm.reach) : undefined
+    if (arm) offset = [(offset?.[0] ?? 0) + arm.offset[0], (offset?.[1] ?? 0) + arm.offset[1]]
     for (let i = start; i < out.length; i++) {
       const layer = out[i]!
       if (offset) layer.shift = [layer.shift[0] + offset[0], layer.shift[1] + offset[1]]
-      if (part.layer && part.layer !== 'object') layer.layer = part.layer
+      if (part.layer && part.layer !== 'object' && !layer.layer) layer.layer = part.layer
+      if (arm) {
+        layer.anchor = [0.5, 1]
+        layer.squash = arm.squash
+        if (arm.rotation) layer.rotation = (arm.rotation * Math.PI) / 180
+      }
     }
   }
   return out
@@ -234,7 +242,8 @@ function resolveLeaf(leaf: SpriteLeaf, ctx: Context): SpriteLayer | null {
         : {}),
     ...(leaf.additive ? { additive: true } : {}),
     shadow: leaf.shadow === true,
-    ground: ctx.ground
+    ground: ctx.ground,
+    ...(leaf.layer ? { layer: leaf.layer } : {})
   }
 }
 

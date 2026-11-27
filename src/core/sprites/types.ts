@@ -1,3 +1,5 @@
+import type { ArmPiece } from './inserter'
+
 /**
  * Sprite definitions as stored in the PrototypeDb, and the resolved layers the
  * renderer draws. See docs/spec/03-game-assets.md § Sprite definitions.
@@ -67,6 +69,8 @@ export interface SpriteLeaf {
   /** `apply_runtime_tint`: a mask coloured with the player colour. */
   runtimeTint?: true
   additive?: true
+  /** The sprite's own `render_layer` (or its container's), when not `object`; wins over the part's. */
+  layer?: DrawLayer
 }
 
 export interface SpriteLayers {
@@ -115,17 +119,26 @@ export interface GraphicsPart {
   along?: number
   /** Rail signals: only drawn for a signal on this rail layer (blueprint `rail_layer`). */
   railLayer?: RailLayer
+  /**
+   * Inserters: a piece of the arm, posed by the entity's direction and the
+   * pickup distance (`reach`, tiles) instead of a direction index (inserter.ts).
+   */
+  arm?: { piece: ArmPiece; reach: number }
 }
 
 export type RailLayer = 'ground' | 'elevated'
 
 /**
- * Draw passes beyond the default three (ground patches, shadows, bodies sorted
- * by y), named after the game's render layers. Bottom to top:
+ * Draw passes beyond the default ground / shadow / body passes, named after
+ * the game's render layers (RenderLayer). Bottom to top:
  * rail-stone-path-lower, rail-stone-path, rail-tie, rail-chain-signal-metal,
- * rail-screw, rail-metal, (ground), (shadows), (bodies), higher-object,
- * elevated-rail-stone-path-lower … elevated-rail-above-metal, elevated-object.
- * `ground` and `object` name the default passes.
+ * rail-screw, rail-metal, (ground), lower-object, (shadows),
+ * lower-object-above-shadow, object-under, (bodies), cargo-hatch,
+ * higher-object-under (inserter hands), higher-object (train stop tops),
+ * above-inserters, elevated-rail-stone-path-lower … elevated-rail-above-metal,
+ * elevated-object. Every pass is drawn in entity y order. `ground` and
+ * `object` name the default passes; the shadow pass sits just above
+ * `lower-object`.
  */
 export const DRAW_LAYERS = [
   'rail-stone-path-lower',
@@ -135,8 +148,14 @@ export const DRAW_LAYERS = [
   'rail-screw',
   'rail-metal',
   'ground',
+  'lower-object',
+  'lower-object-above-shadow',
+  'object-under',
   'object',
+  'cargo-hatch',
+  'higher-object-under',
   'higher-object',
+  'above-inserters',
   'elevated-rail-stone-path-lower',
   'elevated-rail-stone-path',
   'elevated-rail-tie',
@@ -170,4 +189,10 @@ export interface SpriteLayer {
   ground: boolean
   /** Draw pass other than ground / shadow / body (shadows still go to the shadow pass). */
   layer?: DrawLayer
+  /** Point of the rectangle placed at `shift`, as fractions of its size; default the centre. */
+  anchor?: [number, number]
+  /** Vertical scale before rotation; default 1. */
+  squash?: number
+  /** Clockwise rotation about the anchor, in radians; default 0. */
+  rotation?: number
 }

@@ -1,7 +1,8 @@
 import { NOT_BLUEPRINTABLE_TYPES, tileSizeOf } from './blueprintable'
 import type { PrototypeLookup } from './sizes'
-import { entityGraphics, entityShapes } from '../sprites/graphics'
+import { entityGraphics, entityGraphicsFlipped, entityShapes } from '../sprites/graphics'
 import { color } from '../sprites/normalize'
+import { tileGraphics, type TileGraphics } from '../sprites/tiles'
 import type { GraphicsPart, ShapePictures } from '../sprites/types'
 import { entityConnections, type EntityConnections } from './connections'
 
@@ -12,7 +13,7 @@ import { entityConnections, type EntityConnections } from './connections'
  * Bump DB_FORMAT_VERSION whenever the shape or contents change, so cached
  * databases are rebuilt.
  */
-export const DB_FORMAT_VERSION = 4
+export const DB_FORMAT_VERSION = 5
 
 /** Types whose prototype `color` tints their runtime-tint masks. */
 const TINTED_TYPES: ReadonlySet<string> = new Set([
@@ -34,6 +35,8 @@ export interface EntityProto {
   selectionBox?: BoxTuple
   /** Static sprite definitions for the types in `SPRITE_TYPES` (format 2+). */
   graphics?: GraphicsPart[]
+  /** Graphics of a mirrored entity, when the prototype has its own (`graphics_set_flipped`; format 5+). */
+  graphicsFlipped?: GraphicsPart[]
   /** Neighbour-dependent pictures: belts, pipes, heat pipes, walls, undergrounds (format 3+). */
   shapes?: ShapePictures
   /** Fluid and heat connection points (format 3+). */
@@ -98,6 +101,8 @@ export interface PrototypeDb {
   virtualSignals: string[]
   qualities: Record<string, QualityProto>
   tiles: string[]
+  /** Tile sprites by tile name (format 5+). */
+  tileGraphics: Record<string, TileGraphics>
   /** Names that have an icon file, per category (filled in by the main process). */
   icons: Partial<Record<IconCategory, string[]>>
 }
@@ -189,6 +194,7 @@ export function buildPrototypeDb(
       const collisionBox = box(proto['collision_box'])
       const selectionBox = box(proto['selection_box'])
       const graphics = entityGraphics(type, proto)
+      const graphicsFlipped = entityGraphicsFlipped(type, proto)
       const shapes = entityShapes(type, proto)
       const connections = entityConnections(proto)
       const tint = TINTED_TYPES.has(type) ? color(proto['color']) : undefined
@@ -198,6 +204,7 @@ export function buildPrototypeDb(
         ...(collisionBox ? { collisionBox } : {}),
         ...(selectionBox ? { selectionBox } : {}),
         ...(graphics ? { graphics } : {}),
+        ...(graphicsFlipped ? { graphicsFlipped } : {}),
         ...(shapes ? { shapes } : {}),
         ...(connections ? { connections } : {}),
         ...(tint ? { color: tint } : {})
@@ -252,6 +259,12 @@ export function buildPrototypeDb(
     virtualSignals: names('virtual-signal'),
     qualities,
     tiles: names('tile'),
+    tileGraphics: Object.fromEntries(
+      Object.entries(raw['tile'] ?? {}).flatMap(([name, proto]) => {
+        const g = tileGraphics(proto)
+        return g ? [[name, g]] : []
+      })
+    ),
     icons: {}
   }
 }
