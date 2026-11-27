@@ -17,6 +17,7 @@ import {
   type PrototypeLookup
 } from '../prototypes/sizes'
 import type { Blueprint, BlueprintEntity } from './schema'
+import { blueprintWires, type Wire } from './wires'
 
 /**
  * Footprint layout of a blueprint for the viewer (docs/spec/04-visualization.md).
@@ -48,6 +49,8 @@ export interface TileLayout {
 export interface BlueprintLayout {
   entities: EntityLayout[]
   tiles: TileLayout[]
+  /** The blueprint's wires (top-level 2.x `wires`). */
+  wires: Wire[]
   /** Bounding box of entities and tiles, or null for an empty blueprint. */
   bounds: Box | null
   unknownNames: string[]
@@ -100,5 +103,11 @@ export function layoutBlueprint(blueprint: Blueprint, lookup: PrototypeLookup): 
     ...tiles.map((t) => ({ left: t.x, top: t.y, right: t.x + 1, bottom: t.y + 1 }))
   ])
 
-  return { entities, tiles, bounds, unknownNames: [...unknown].sort() }
+  return {
+    entities,
+    tiles,
+    wires: blueprintWires(blueprint),
+    bounds,
+    unknownNames: [...unknown].sort((a, b) => a.localeCompare(b))
+  }
 }

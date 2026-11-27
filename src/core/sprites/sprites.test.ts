@@ -374,6 +374,10 @@ describe('rotated sheets (direction_count)', () => {
     }
     expect(rects(resolve(pole, E))).toEqual([[84, 0]])
     expect(rects(resolve(pole, E, { fixedRotation: true }))).toEqual([[0, 0]])
+    // The pole variation picked from its wires chooses the frame instead.
+    const node = normalizeSprite(pole)!
+    const varied = resolveGraphics([{ node, fixedRotation: true }], N, { variation: 2 })
+    expect(rects(varied)).toEqual([[168, 0]])
   })
 
   it('maps 16-way directions onto 64 orientations (radar, 8 per line)', () => {

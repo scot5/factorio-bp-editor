@@ -35,7 +35,7 @@ The agent panel docks on the right as a tab next to Analysis, or opens as a sepa
 5. Entity shadows (including the shadows of elevated rails)
 6. Entity bodies by render layer, each pass in y order: `lower-object-above-shadow` (also `lower-object-overlay`), `object-under`, `object` (most bodies), `cargo-hatch`, `higher-object-under` (inserter hands), `higher-object` (train stop tops), `above-inserters`. The pass comes from the sprite's own `render_layer` where the dump gives one, else from the type (see 03 § Sprite definitions)
 7. Elevated rails and elevated signals, in the same passes as ground rails plus a fence pass, then other elevated objects
-8. Wires (copper, red, green)
+8. Wires (copper, then red, then green), above every sprite pass and under icons and arrows of entities without sprites. Each wire is a cubic Bézier between its two end points (03 § Wire connection points) that sags downwards by up to 0.94 tiles, less for shorter and steeper wires, straight when vertical (the Factorio Blueprint Editor's curve). Colours `#cf7c00`, `#c83718`, `#588c38`. The width is fixed on screen, 1.5 px, growing to at most 4 px when zoomed in (0.04 tiles). The curve is drawn as straight pieces about 10 px long, since Pixi's own Bézier tessellation is too coarse in tile units. Wire shadows are not drawn. Implemented in `scene.ts` (`drawWires`); `wireSegments` in `src/core/sprites/wires.ts` computes the end points once per layout and game data
 9. Overlays (see below)
 10. Selection, hover, ghost previews
 
@@ -44,6 +44,7 @@ The agent panel docks on the right as a tab next to Analysis, or opens as a sepa
 The renderer must stay smooth (≥ 50 fps pan/zoom) for blueprints with **20,000 entities** on mid-range hardware.
 
 - Below about 1/4 zoom: skip shadows and wires, and draw entity bodies as coloured footprints from a per-type palette.
+- Wires are drawn from 1/4 zoom up in both sprite and footprint mode, with or without game data: those whose curve box meets the view (a spatial index of the boxes, so a wire crossing the view with both ends outside still shows), at most 20,000 per frame. The drawn count is on the canvas element as `data-wires`, for tests.
 - From 1/4 zoom (16 px per tile) up, entities with game graphics are drawn as sprites, at most 6,000 visible entities (otherwise footprints). Entities without graphics, and those whose sheets are still loading, keep a footprint and icon (and their direction arrow). Inserters show their facing through the arm, so they have no arrow in sprite mode. Implemented in `src/renderer/canvas/scene.ts`, using pooled sprites for visible entities only: one pool per pass above, in that order (`DrawLayer` in `src/core/sprites/types.ts`).
 - Shadows are drawn as one group at 50 % opacity (an `AlphaFilter` on the shadow layer), so overlapping shadows do not get darker, as in the game.
 - Below about 1/16 zoom: a single pre-rendered bitmap of the whole blueprint, updated in the background after edits.

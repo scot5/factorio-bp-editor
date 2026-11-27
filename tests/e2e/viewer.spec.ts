@@ -39,6 +39,14 @@ test('imports a string, shows its entities and exports it unchanged', async () =
   expect(exported).toMatch(/^0/)
   expect(decode(exported)).toStrictEqual(decode(text))
   await page.keyboard.press('Escape')
+
+  // Copper wires are drawn from 1/4 zoom up (fallback end points: no game data here).
+  const canvas = page.getByTestId('blueprint-canvas')
+  const box = (await canvas.boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -120)
+  await expect(canvas.locator('canvas')).toHaveAttribute('data-wires', /^[1-9]\d*$/)
+  await page.getByRole('button', { name: 'Fit' }).click()
 })
 
 test('selects an entity by clicking and shows it in the inspector', async () => {

@@ -12,7 +12,13 @@ import {
 import { directionVector, SpatialIndex, type Box, type Position } from '@core/geometry'
 import type { BlueprintLayout, EntityLayout, TileLayout } from '@core/model'
 import type { EntityCategory } from '@core/prototypes'
-import { DRAW_LAYERS, type DrawLayer, type SpriteLayer } from '@core/sprites'
+import {
+  DRAW_LAYERS,
+  wireCurve,
+  type DrawLayer,
+  type SpriteLayer,
+  type WireSegment
+} from '@core/sprites'
 import { visibleBox, type Camera } from './camera'
 import {
   BACKGROUND,
@@ -22,7 +28,8 @@ import {
   GRID_COLOR,
   HOVER_COLOR,
   SELECTION_COLOR,
-  TILE_COLOR
+  TILE_COLOR,
+  WIRE_COLORS
 } from './colors'
 import { TextureCache } from './textures'
 
@@ -34,14 +41,15 @@ import { TextureCache } from './textures'
  * Layers (bottom to top): grid, tile colours, tile sprites, footprints,
  * sprite passes (rail stone paths … rail metals, ground patches,
  * lower objects, shadows, the body passes by render layer, elevated rails,
- * elevated objects: see POOL_ORDER; each pass in entity y order), icons,
+ * elevated objects: see POOL_ORDER; each pass in entity y order), wires, icons,
  * direction arrows, selection, hover, box-select rectangle, labels (screen
  * space).
  *
  * Level of detail: from SPRITE_MIN_SCALE px/tile up, entities with game
  * graphics are drawn as sprites and the rest keep footprints and icons
  * (rebuilt per frame for the visible ones), and tiles get their sprites.
- * Below it, one static footprint path is drawn for all entities.
+ * Below it, one static footprint path is drawn for all entities. Wires are
+ * drawn from the same zoom up, in both modes.
  */
 
 const INSET = 0.06 // gap between neighbouring footprints, in tiles
@@ -54,6 +62,11 @@ const SPRITE_MIN_SCALE = 16 // px/tile (spec 04: 1/4 zoom)
 const MAX_SPRITE_ENTITIES = 6000
 const MAX_TILE_SPRITES = 20000
 const SPRITE_MARGIN = 3 // tiles: sprites overhang their footprint (tall poles, shadows)
+const WIRE_MIN_SCALE = 16 // px/tile (spec 04: no wires below 1/4 zoom)
+const WIRE_WIDTH = 1.5 // screen px, at least
+const WIRE_WIDTH_PER_PX = 0.04 // wider when zoomed in: tiles (×px/tile), up to 4 px
+const WIRE_SEGMENT_PX = 10 // screen px per straight piece of a sagging wire
+const MAX_WIRES = 20000 // visible wires drawn per frame; more are skipped
 const PX_PER_TILE_AT_SCALE_1 = 32 // Factorio sprites: 32 px per tile at scale 1
 /**
  * Shadows are drawn as one group at this opacity, like the game's shadow pass,
@@ -111,6 +124,8 @@ export class Scene {
   private readonly tilePool = newPool()
   private readonly tileLayers = new Map<TileLayout, SpriteLayer | null>()
   private tileIndex = new SpatialIndex<TileLayout>()
+  private readonly wireLayer = new Graphics()
+  private wireIndex = new SpatialIndex<WireSegment>()
   /** Per-frame footprints and arrows of visible entities not drawn as sprites. */
   private readonly detail = new Graphics()
   private readonly detailArrows = new Graphics()
@@ -157,6 +172,7 @@ export class Scene {
       this.entities,
       this.detail,
       ...[...this.pools.values()].map((p) => p.container),
+      this.wireLayer,
       this.icons,
       this.arrows,
       this.detailArrows,
@@ -201,6 +217,13 @@ export class Scene {
     this.drawEntities()
     this.drawSelection()
     this.drawHover()
+    this.invalidate()
+  }
+
+  /** Wires with their world end points (see `wireSegments`). */
+  setWires(wires: readonly WireSegment[]): void {
+    this.wireIndex = new SpatialIndex<WireSegment>()
+    for (const w of wires) this.wireIndex.insert(w.box, w)
     this.invalidate()
   }
 
@@ -289,6 +312,7 @@ export class Scene {
         for (const pool of [...this.pools.values(), this.tilePool]) this.finishPool(pool, 0)
       }
       this.drawDetail(spriteMode, withSprites)
+      this.drawWires()
       let withIcons = new Set<EntityLayout>()
       try {
         withIcons = this.drawIcons(withSprites)
@@ -456,6 +480,26 @@ export class Scene {
       sprite.blendMode = 'normal'
       sprite.visible = true
     }
+  }
+
+  /**
+   * Wires whose curve box meets the view (a wire can cross it with both ends
+   * outside), one path per colour, at a fixed screen width. The drawn count
+   * is on the canvas as `data-wires`, for tests.
+   */
+  private drawWires(): void {
+    const g = this.wireLayer
+    g.clear()
+    let drawn = 0
+    const { scale } = this.camera
+    const visible =
+      scale >= WIRE_MIN_SCALE
+        ? this.wireIndex.query(visibleBox(this.camera, this.width, this.height))
+        : []
+    if (visible.length <= MAX_WIRES)
+      for (const color of ['copper', 'red', 'green'] as const)
+        drawn += strokeWires(g, visible, color, scale)
+    this.app.canvas.dataset['wires'] = String(drawn)
   }
 
   private createSprite(pool: SpritePool): Sprite {
@@ -628,6 +672,54 @@ export class Scene {
     this.labels.addChild(label)
     this.labelPool.push(label)
     return label
+  }
+}
+
+/** Strokes the wires of one colour as one path; returns how many there were. */
+function strokeWires(
+  g: Graphics,
+  wires: readonly WireSegment[],
+  color: WireSegment['color'],
+  scale: number
+): number {
+  let count = 0
+  for (const w of wires) {
+    if (w.color !== color) continue
+    strokeWire(g, w, scale)
+    count++
+  }
+  if (count)
+    g.stroke({
+      color: WIRE_COLORS[color],
+      width: Math.min(Math.max(WIRE_WIDTH, scale * WIRE_WIDTH_PER_PX), 4) / scale,
+      cap: 'round',
+      join: 'round'
+    })
+  return count
+}
+
+/**
+ * A wire's sagging curve as straight pieces about WIRE_SEGMENT_PX long on
+ * screen (Pixi's own Bézier tessellation is too coarse in tile units).
+ */
+function strokeWire(g: Graphics, w: WireSegment, scale: number): void {
+  const [a, b] = [w.a, w.b]
+  const [c1, c2] = wireCurve(a, b)
+  g.moveTo(a[0], a[1])
+  const sags = c1[0] !== a[0] + (b[0] - a[0]) / 5 || c1[1] !== a[1] + (b[1] - a[1]) / 5
+  const length = Math.hypot(b[0] - a[0], b[1] - a[1]) * scale
+  const n = sags ? Math.min(Math.max(Math.ceil(length / WIRE_SEGMENT_PX), 2), 32) : 1
+  for (let i = 1; i <= n; i++) {
+    const t = i / n
+    const u = 1 - t
+    const k0 = u * u * u
+    const k1 = 3 * u * u * t
+    const k2 = 3 * u * t * t
+    const k3 = t * t * t
+    g.lineTo(
+      k0 * a[0] + k1 * c1[0] + k2 * c2[0] + k3 * b[0],
+      k0 * a[1] + k1 * c1[1] + k2 * c2[1] + k3 * b[1]
+    )
   }
 }
 

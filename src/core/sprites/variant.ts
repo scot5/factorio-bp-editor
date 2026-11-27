@@ -40,5 +40,6 @@ export function graphicsOptionsKey(options: GraphicsOptions): string {
   if (options.orientation !== undefined) key += `o${options.orientation}`
   if (options.railLayer) key += `r${options.railLayer}`
   if (options.runtimeTint) key += `t${options.runtimeTint.join(',')}`
+  if (options.variation) key += `v${options.variation}`
   return key
 }
