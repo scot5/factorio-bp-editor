@@ -108,7 +108,7 @@ The renderer's `SpriteResolver` maps `(entity prototype, direction, variant)` to
   - Frame 0 by default. `repeat_count` holds each frame for that many ticks.
   - `apply_runtime_tint` masks (turrets) are tinted with the game's default player colour.
   - Output layer: `{ url, rect, shift (tiles), scale, tint?, additive?, shadow, ground }`. On screen a layer is `rect × scale / 32` tiles, centred at the entity centre plus `shift`.
-- **Not yet handled:** `mirror` (flipped sprites and fluid boxes), neighbour-dependent shapes (belts, pipes, walls beyond the single piece, rails), rolling stock and the remaining types. These are the next steps (see `docs/plan/remaining-work.md`).
+- **Not yet handled:** `mirror` (flipped sprites and fluid boxes), neighbour-dependent shapes (belts, pipes, walls beyond the single piece, rails), rolling stock and the remaining types. These are the next sprite steps (M3 7b–7d).
 
 Coverage is incremental, by prototype type:
 
