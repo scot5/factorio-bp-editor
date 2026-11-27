@@ -431,7 +431,7 @@ function joinCopperNetworks(db: PrototypeDb, layout: BlueprintLayout, poles: Uni
   for (const e of layout.entities)
     if (typeof e.entity.entity_number === 'number') byNumber.set(e.entity.entity_number, e)
 
-  const switchSides = new Map<EntityLayout, { left?: number; right?: number }>()
+  const switches = new SwitchSides()
   for (const group of wireNetworks(layout.wires, 'copper')) {
     const ends = group.flatMap((end) => {
       const e = byNumber.get(end.entity)
@@ -441,18 +441,30 @@ function joinCopperNetworks(db: PrototypeDb, layout: BlueprintLayout, poles: Uni
     if (first === undefined) continue
     for (const { e, connector } of ends) {
       if (poles.has(e.index)) poles.union(first, e.index)
-      else if (db.entities[e.entity.name]?.type === 'power-switch') {
-        const sides = switchSides.get(e) ?? {}
-        if (connector === WireConnectorId.PowerSwitchRightCopper) sides.right = first
-        else sides.left = first
-        switchSides.set(e, sides)
-      }
+      else if (db.entities[e.entity.name]?.type === 'power-switch')
+        switches.set(e, connector, first)
     }
   }
-  for (const [e, sides] of switchSides) {
-    const on = (e.entity as { switch_state?: unknown }).switch_state === true
-    if (on && sides.left !== undefined && sides.right !== undefined)
-      poles.union(sides.left, sides.right)
+  switches.join(poles)
+}
+
+/** The pole each side of each power switch reaches. */
+class SwitchSides {
+  private readonly sides = new Map<EntityLayout, { left?: number; right?: number }>()
+
+  set(entity: EntityLayout, connector: number, pole: number): void {
+    const sides = this.sides.get(entity) ?? {}
+    if (connector === WireConnectorId.PowerSwitchRightCopper) sides.right = pole
+    else sides.left = pole
+    this.sides.set(entity, sides)
+  }
+
+  /** Joins both sides of every switch that is on. */
+  join(poles: UnionFind): void {
+    for (const [e, { left, right }] of this.sides) {
+      const on = (e.entity as { switch_state?: unknown }).switch_state === true
+      if (on && left !== undefined && right !== undefined) poles.union(left, right)
+    }
   }
 }
 
