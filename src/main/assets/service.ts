@@ -9,7 +9,14 @@ import {
   type IconCategory,
   type PrototypeDb
 } from '@core/prototypes'
-import { enabledMods, GameRunningError, runFactorio, writeDataDir, type ModInfo } from './factorio'
+import {
+  enabledMods,
+  GameRunningError,
+  readLocale,
+  runFactorio,
+  writeDataDir,
+  type ModInfo
+} from './factorio'
 import { findInstall, validateInstall, type FactorioInstall } from './locate'
 import type { AssetRoots } from './protocol'
 import type { SettingsStore } from '../settings'
@@ -117,7 +124,11 @@ export class AssetService {
 
       this.setStatus({ state: 'loading', ...base, message: 'Building the prototype database…' })
       const raw = JSON.parse(await readFile(join(scriptOutput, 'data-raw-dump.json'), 'utf8'))
-      const db = buildPrototypeDb(raw, { gameVersion: install.version, mods })
+      const db = buildPrototypeDb(raw, {
+        gameVersion: install.version,
+        mods,
+        locale: readLocale(install, mods)
+      })
 
       await rm(cacheDir, { recursive: true, force: true })
       await mkdir(join(cacheDir, 'icons'), { recursive: true })

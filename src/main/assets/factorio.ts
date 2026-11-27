@@ -2,6 +2,7 @@ import { execFile } from 'child_process'
 import { existsSync, readdirSync, readFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { parseEnabledMods, resolveWriteDataDir } from '@core/assets'
+import { parseLocaleCfg, type Locale } from '@core/prototypes'
 import { systemWriteDataDir, type FactorioInstall } from './locate'
 
 /** Folder where Factorio writes mods, saves and `script-output` for this install. */
@@ -54,6 +55,24 @@ export function enabledMods(install: FactorioInstall, writeData: string): ModInf
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
     return { name, version: versions[versions.length - 1] ?? 'unknown' }
   })
+}
+
+/**
+ * English locale of the built-in mods (`data/core` first, then the enabled mods
+ * in load order), read from `data/<mod>/locale/en/*.cfg`. Downloaded mods are
+ * not read yet (they may be zips; M7).
+ */
+export function readLocale(install: FactorioInstall, mods: ModInfo[]): Locale {
+  const locale: Locale = {}
+  for (const name of ['core', ...mods.map((m) => m.name)]) {
+    const dir = join(install.path, 'data', name, 'locale', 'en')
+    if (!existsSync(dir)) continue
+    for (const file of readdirSync(dir)
+      .filter((f) => f.endsWith('.cfg'))
+      .sort())
+      parseLocaleCfg(readFileSync(join(dir, file), 'utf8'), locale)
+  }
+  return locale
 }
 
 /** The game is running: Factorio holds an exclusive lock on its write-data folder. */

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildPrototypeDb, dbPrototypeLookup, DB_FORMAT_VERSION, iconCategoryFor } from './db'
+import {
+  buildPrototypeDb,
+  dbPrototypeLookup,
+  DB_FORMAT_VERSION,
+  displayName,
+  iconCategoryFor
+} from './db'
 
 // A tiny excerpt in the shape of data-raw-dump.json.
 const raw = {
@@ -117,7 +123,7 @@ describe('buildPrototypeDb', () => {
   })
 
   it('keeps blueprintable entities with sizes and boxes, in both vector notations', () => {
-    expect(db.entities['assembling-machine-2']).toEqual({
+    expect(db.entities['assembling-machine-2']).toMatchObject({
       type: 'assembling-machine',
       width: 3,
       height: 3,
@@ -196,6 +202,146 @@ describe('buildPrototypeDb', () => {
       height: 1
     })
     expect(dbPrototypeLookup(db)('kr-steel-pipe')).toBeUndefined()
+  })
+})
+
+describe('buildPrototypeDb analysis fields (format 7)', () => {
+  const excerpt = {
+    'assembling-machine': {
+      foundry: {
+        name: 'foundry',
+        collision_box: [
+          [-2.2, -2.2],
+          [2.2, 2.2]
+        ],
+        crafting_speed: 4,
+        crafting_categories: ['metallurgy'],
+        energy_usage: '2500kW',
+        energy_source: { type: 'electric' }
+      }
+    },
+    'curved-rail-a': {
+      'curved-rail-a': {
+        name: 'curved-rail-a',
+        collision_box: [
+          [-0.75, -2.5],
+          [0.75, 2.5]
+        ],
+        placeable_by: { item: 'rail', count: 3 }
+      }
+    },
+    item: {
+      foundry: { name: 'foundry', place_result: 'foundry', stack_size: 20 },
+      rail: { name: 'rail', stack_size: 100 },
+      concrete: { name: 'concrete', place_as_tile: { result: 'concrete' } },
+      'hazard-concrete': {
+        name: 'hazard-concrete',
+        place_as_tile: { result: 'hazard-concrete-left' }
+      },
+      coal: { name: 'coal', fuel_value: '4MJ', fuel_categories: ['chemical'] },
+      'battery-equipment': {
+        name: 'battery-equipment',
+        place_as_equipment_result: 'battery-equipment'
+      }
+    },
+    recipe: {
+      concrete: { name: 'concrete', results: [{ type: 'item', name: 'concrete', amount: 10 }] },
+      'fill-water-barrel': {
+        name: 'fill-water-barrel',
+        localised_name: ['recipe-name.fill-barrel', ['fluid-name.water']],
+        results: [{ type: 'item', name: 'water-barrel', amount: 1 }]
+      },
+      'oil-processing': {
+        name: 'oil-processing',
+        results: [
+          { type: 'fluid', name: 'water', amount: 1 },
+          { type: 'item', name: 'coal', amount: 1 }
+        ]
+      }
+    },
+    fluid: { water: { name: 'water' } },
+    tile: {
+      concrete: { name: 'concrete' },
+      'hazard-concrete-left': {
+        name: 'hazard-concrete-left',
+        placeable_by: { item: 'hazard-concrete', count: 1 }
+      }
+    },
+    quality: {
+      legendary: {
+        name: 'legendary',
+        level: 5,
+        next: undefined,
+        beacon_power_usage_multiplier: 1 / 6
+      },
+      rare: { name: 'rare', level: 2, next: 'epic' }
+    },
+    planet: { nauvis: { name: 'nauvis' } }
+  }
+  const locale = {
+    'entity-name.foundry': 'Foundry',
+    'item-name.rail': 'Rail',
+    'item-name.concrete': 'Concrete',
+    'item-name.coal': 'Coal',
+    'equipment-name.battery-equipment': 'Personal battery',
+    'tile-name.concrete': 'Concrete',
+    'fluid-name.water': 'Water',
+    'recipe-name.fill-barrel': 'Fill __1__ barrel',
+    'space-location-name.nauvis': 'Nauvis',
+    'quality-name.legendary': 'Legendary'
+  }
+  const db = buildPrototypeDb(excerpt as never, { gameVersion: '2.1.25', mods: [], locale })
+
+  it('stores entity stats and placeable_by', () => {
+    expect(db.entities['foundry']!.stats).toEqual({
+      craftingSpeed: 4,
+      craftingCategories: ['metallurgy'],
+      moduleSlots: 0,
+      allowedEffects: [],
+      energyUsage: 2_500_000,
+      energySource: { type: 'electric' }
+    })
+    expect(db.entities['curved-rail-a']!.stats).toEqual({
+      placeableBy: [{ item: 'rail', count: 3 }]
+    })
+  })
+
+  it('stores item stats, quality multipliers and tile items', () => {
+    expect(db.items['coal']).toMatchObject({ fuelValue: 4e6, fuelCategories: ['chemical'] })
+    expect(db.qualities['legendary']).toEqual({
+      level: 5,
+      multipliers: { beacon_power_usage: 1 / 6 }
+    })
+    expect(db.qualities['rare']).toEqual({ level: 2, next: 'epic' })
+    expect(db.tileItems).toEqual({
+      concrete: [{ item: 'concrete', count: 1 }],
+      'hazard-concrete-left': [{ item: 'hazard-concrete', count: 1 }]
+    })
+  })
+
+  it('resolves display names with the game fallbacks', () => {
+    expect(db.names.entity).toEqual({ foundry: 'Foundry' })
+    // item → own name, else the entity or tile it places, else its equipment
+    expect(db.names.item).toEqual({
+      foundry: 'Foundry',
+      rail: 'Rail',
+      concrete: 'Concrete',
+      coal: 'Coal',
+      'battery-equipment': 'Personal battery'
+    })
+    // recipe → localised_name, recipe-name, else its only product; none with two products
+    expect(db.names.recipe).toEqual({
+      concrete: 'Concrete',
+      'fill-water-barrel': 'Fill Water barrel'
+    })
+    expect(db.names['space-location']).toEqual({ nauvis: 'Nauvis' })
+    expect(displayName(db, 'entity', 'foundry')).toBe('Foundry')
+    expect(displayName(db, 'entity', 'kr-thing')).toBe('kr-thing')
+    expect(displayName(null, 'item', 'coal')).toBe('coal')
+  })
+
+  it('stores no names without a locale', () => {
+    expect(buildPrototypeDb(excerpt as never, { gameVersion: 'x', mods: [] }).names).toEqual({})
   })
 })
 

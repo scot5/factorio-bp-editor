@@ -8,7 +8,7 @@ vi.mock('electron', () => ({ protocol: {} }))
 
 const { resolveAssetPath } = await import('./protocol')
 const { validateInstall } = await import('./locate')
-const { enabledMods } = await import('./factorio')
+const { enabledMods, readLocale } = await import('./factorio')
 
 let tmp: string
 
@@ -29,6 +29,16 @@ beforeAll(() => {
   writeFileSync(join(game, 'data', 'base', 'info.json'), JSON.stringify({ version: '2.1.25' }))
   writeFileSync(join(game, 'data', 'space-age', 'info.json'), JSON.stringify({ version: '2.1.25' }))
   writeFileSync(join(game, 'data', 'base', 'graphics', 'entity', 'belt.png'), 'png')
+  mkdirSync(join(game, 'data', 'base', 'locale', 'en'), { recursive: true })
+  mkdirSync(join(game, 'data', 'space-age', 'locale', 'en'), { recursive: true })
+  writeFileSync(
+    join(game, 'data', 'base', 'locale', 'en', 'base.cfg'),
+    '[entity-name]\nfoundry=Base foundry\nlab=Lab\n'
+  )
+  writeFileSync(
+    join(game, 'data', 'space-age', 'locale', 'en', 'space-age.cfg'),
+    '[entity-name]\r\nfoundry=Foundry\r\n'
+  )
   const exe =
     process.platform === 'win32'
       ? join(game, 'bin', 'x64', 'factorio.exe')
@@ -117,5 +127,17 @@ describe('enabledMods', () => {
       { name: 'space-age', version: '2.1.25' },
       { name: 'Krastorio2', version: '2.0.10' }
     ])
+  })
+})
+
+describe('readLocale', () => {
+  it('reads built-in mods in load order, later mods winning', () => {
+    const install = validateInstall(join(tmp, 'Factorio'))!
+    const locale = readLocale(install, [
+      { name: 'base', version: '2.1.25' },
+      { name: 'space-age', version: '2.1.25' },
+      { name: 'Krastorio2', version: '2.0.10' }
+    ])
+    expect(locale).toEqual({ 'entity-name.foundry': 'Foundry', 'entity-name.lab': 'Lab' })
   })
 })

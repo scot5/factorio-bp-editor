@@ -20,6 +20,18 @@ interface AnalysisSettings {
 - **Bill of materials**: the items needed to build the blueprint (entity → placing item, plus modules and fuel from insert plans, plus tiles). Optionally expanded to raw resources through the recipe tree. Copyable as text and as a "request" blueprint for constant combinators.
 - Footprint: bounding box size and the number of tiles occupied.
 
+**Implemented in M4 PR 1** (`src/core/analysis/inventory.ts`):
+
+- Entity rows are per name and quality (`normal` counts as no quality), with the entity indexes, so a row can select its entities.
+- **Placing item:** the prototype's `placeable_by` (with its count), else an item whose `place_result` is the entity; when several items place one entity, the item with the same name wins, then the first by name. Entities the DB knows but no item places are listed separately ("No placing item"). An entity's quality carries over to its item.
+- **Insert plans:** each plan adds `id.name` (with `id.quality`): the sum of its `in_inventory` slot counts (`count` defaults to 1) plus `grid_count`. 1.1 strings are migrated to insert plans on import, so the 1.1 item map is not read here.
+- **Tiles** use `tileItems` (see 03 § Analysis fields and display names), so `hazard-concrete-left` and `-right` both count as `hazard-concrete`.
+- **Without game data,** or for a prototype the DB does not know (mods), the entity or tile name stands in for its item. Those rows are marked `guessed` and shown dimmed with a note.
+- **Footprint:** width and height of the bounds rounded out to whole tiles, and the number of distinct tiles covered by entity footprints or tiles.
+- **Copy** writes `count × display name (quality)` lines. The constant combinator "request" blueprint and the raw-resource expansion are not built yet.
+- **Worker:** `src/renderer/analysis/analysis.worker.ts` runs `analyse()`; the DB is sent once per change, then one message per analysis. `store/analysis.ts` keeps only the latest result and runs whenever the active blueprint or the game data changes. Without edits (before M5) there is no debounce. The slowest corpus blueprint takes about 12 ms.
+- **UI:** the right sidebar has Inspector and Analysis tabs. The Analysis tab shows the summary, the bill of materials, entities and tiles, with game icons and display names. Clicking a row selects its entities (04 § Interaction).
+
 ### 2. Production
 
 - For each crafting machine: recipe, effective crafting speed (base × quality × modules × beacons), productivity, and cycles/sec.

@@ -62,15 +62,29 @@ interface PrototypeDb {
 }
 ```
 
+This block is the original sketch. The implemented type is `PrototypeDb` in `src/core/prototypes/db.ts`: numbers for analysis are in `EntityProto.stats`, and display names are resolved at build time into `names` (English only so far) instead of a raw `locale` table. See § Analysis fields and display names.
+
 Rebuild the cache when the game version or mod set changes, or when the user asks.
 
 **Fallback.** If the dump cannot run (no install, game running, error), the app still works. It uses a small built-in table of base-game entity sizes (generated from a dump at build time; sizes only, no assets) and draws boxes with labels.
+
+### Analysis fields and display names (DB format 7)
+
+Added in M4 PR 1 for the analysis reports (06). Implementation: `src/core/prototypes/stats.ts`, `locale.ts` and `db.ts`. Checked against the 2.1.25 dump with vanilla plus expansions: every blueprintable entity, item and recipe gets a display name, and the DB grows from about 887 KB to 912 KB.
+
+- **`EntityProto.stats`** (fields omitted at their default): `placeableBy` (`placeable_by`, one entry or a list; rails use it for the rail count: curved 3, half-diagonal 2, legacy curved 4), `craftingSpeed`, `craftingCategories`, `moduleSlots`, `allowedEffects`, `allowedModuleCategories`, `baseEffect` (`effect_receiver.base_effect`: foundry, EM plant and biochamber productivity), `energyUsage` (`energy_usage`, or boiler `energy_consumption`, in W), `energySource` (`type`, electric `drain` in W, burner `fuelCategories`, `effectivity` when not 1), inserter `energyPerMovement` / `energyPerRotation` (J), `rotationSpeed`, `extensionSpeed`, `bulk`, `stackSizeBonus`, `maxBeltStackSize`, `beltSpeed` (belt-like types only, tiles per tick), `maxDistance` (undergrounds; pipe-to-ground from its underground connection's `max_underground_distance`), `supplyAreaDistance` (poles, beacons), `maxWireDistance` (poles), `circuitWireMaxDistance`, `miningSpeed`, `resourceCategories`, beacon `distributionEffectivity`, `distributionEffectivityBonusPerQualityLevel` and `profile`, lab `researchingSpeed`.
+- **Defaults the dump omits** (from `prototype-api.json`): `module_slots` 0; `allowed_effects` none for crafting machines and beacons, all for mining drills, all except quality for labs. Types with module slots always store both fields, with the default applied.
+- **Energy strings** (`"150kW"`, `"4MJ"`, `"0.4kW"`) are parsed with SI prefixes k to Q; W and J are stored as plain numbers.
+- **Items:** `fuelValue` (J) and `fuelCategories` (2.1 items have a `fuel_categories` list), `placeAsTile` (`place_as_tile.result`), and for modules `module: { category, tier, effect }`.
+- **Qualities:** `next`, and `multipliers`, the explicit `*_multiplier` fields without the suffix. `qualityMultiplier(quality, key)` applies the game's defaults: `default` = 1 + 0.3 × level; crafting speed, inserter speed, lab speed and module multipliers fall back to `default`; beacon power, drill resource drain and machine energy default to 1; range = min(1 + 0.1 × level, 3).
+- **`tileItems`:** the items that place each tile: the tile's `placeable_by` (hazard concrete right, frozen tiles), else an item whose `place_as_tile` names it.
+- **Display names (`names`):** per category (`entity`, `item`, `recipe`, `fluid`, `tile`, `virtual-signal`, `quality`, `space-location`). The main process reads `data/core` and then each enabled built-in mod's `locale/en/*.cfg` (later mods win); downloaded mods are not read yet (M7, with mod zips). Keys are `<section>.<key>`, as LocalisedStrings use them. The name is the prototype's `localised_name` (a LocalisedString, resolved with `__1__` parameters and `__ENTITY__x__` style references), else `<category>-name.<name>`. Items without one take the name of the entity or tile they place, or of their equipment (`equipment-name`); recipes take the name of their main or only product. Without game data, or for a name not found, the UI shows the internal name (`displayName`).
 
 ### Typed schemas
 
 `doc-html/prototype-api.json` describes every prototype type and property in machine-readable form. Use it at build time to generate TypeScript types for the parts of the dump the app reads. Do not hand-write them.
 
-Exception, decided in M3 step 7a: the DB builder reads the dump as `unknown` and **normalises** what it keeps into the app's own compact types (`EntityProto`, `SpriteNode` in `src/core/sprites/types.ts`). Those are our cache format, not the game's prototype types, so they are written by hand. Generated prototype types would not remove the runtime validation that untrusted JSON needs, so generation is deferred until a feature reads many more prototype properties (M4 analysis is the likely point).
+Exception, decided in M3 step 7a: the DB builder reads the dump as `unknown` and **normalises** what it keeps into the app's own compact types (`EntityProto`, `SpriteNode` in `src/core/sprites/types.ts`). Those are our cache format, not the game's prototype types, so they are written by hand. Generated prototype types would not remove the runtime validation that untrusted JSON needs, so generation is deferred until a feature reads many more prototype properties. M4 PR 1 kept the hand-written approach: the analysis fields are about 30 normalised numbers and lists (§ Analysis fields and display names), and their defaults were taken from `prototype-api.json` by hand.
 
 ## Graphics
 
