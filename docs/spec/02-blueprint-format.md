@@ -84,24 +84,91 @@ interface BlueprintEntity {
 
 ### Wires (2.0+)
 
-`wires` is a top-level list of `[entity_a, connector_a, entity_b, connector_b]`. The connector ids follow `defines.wire_connector_id`: circuit red/green inputs and outputs for combinators, copper wire connectors for poles and power switches. The model MUST convert this into an adjacency structure for analysis and editing, and convert it back unchanged on export.
+`wires` is a top-level list of `[entity_a, connector_a, entity_b, connector_b]`. The model MUST convert this into an adjacency structure for analysis and editing, and convert it back unchanged on export.
+
+Connector ids, as **confirmed from the 2.1.25 corpus** (see `tests/corpus/README.md`):
+
+| Id | Meaning | Seen on |
+| --- | --- | --- |
+| 1 | Circuit red. For combinators: **input** red | poles, chests, inserters, lamps, tanks, train stops, signals, combinators |
+| 2 | Circuit green. For combinators: **input** green | same |
+| 3 | Combinator **output** red | arithmetic and decider combinators |
+| 4 | Combinator **output** green | arithmetic and decider combinators |
+| 5 | Copper (pole) | electric poles, substations |
+| 5 | Power switch **left** copper (same id as pole copper) | confirmed from the game's upgrade of 1.1 power switches |
+| 6 | Power switch **right** copper | confirmed from the game's upgrade of 1.1 power switches |
+
+The names come from `defines.wire_connector_id` in `runtime-api.json`. That file's `order` field is display order, not the numeric value, so never derive the ids from it.
+
+### Other confirmed 2.x shapes
+
+Taken from the corpus:
+
+```ts
+// Insert plans (modules, fuel, ammo): entity.items
+type InsertPlan = {
+  id: { name: string; quality?: string }
+  items: { in_inventory?: { inventory: number; stack: number; count?: number }[]; grid_count?: number }
+}
+// e.g. 4× quality-module-3 into the module inventory (4) of an assembler:
+// [{ id: { name: 'quality-module-3' }, items: { in_inventory: [{ inventory: 4, stack: 0 }, …, { inventory: 4, stack: 3 }] } }]
+
+// Quality filters (inserters, deconstruction planners)
+type ItemFilter = { index: number; name?: string; quality?: string; comparator?: '=' | '!=' | '<' | '>' | '<=' | '>=' }
+```
+
+- A space platform's `schedules[].locomotives` holds the **hub's** `entity_number`.
+- Rolling stock (locomotives, wagons) has a float **`orientation`** (0–1, where 0.25 is east) instead of `direction`, and off-grid positions (for example `x: 45.5625`). Couplings are in the top-level `stock_connections: [{ stock, front?, back? }]` (entity numbers). Train schedules can have `group` and `interrupts`.
+- The game writes some floats as their **full exact decimal expansion** (colour `0.949999988079071044921875`, 1.1 speaker volume `0.460000000000000053290705182007513940334320068359375`). `JSON.stringify` writes the shortest equivalent (`0.949999988079071`). The **value** is identical, so the round-trip guarantee below (deep-equal on parsed values) holds, but the JSON is not byte-identical. 25 of the 27 corpus strings are byte-identical after `JSON.parse` → `JSON.stringify`. These two cases are the exceptions. **Confirmed in game (2.1.25):** `train_with_schedule.txt`, re-encoded with the shortened colour value, imports correctly (locomotive colour, fuel, wagons and schedule all intact). Plain `JSON.parse` / `JSON.stringify` is therefore enough. No custom number handling is needed.
+- Mirrored entities have `mirror: true`, and often no `direction` (north).
+- Literal JSON `null` values occur (for example `"result-inventory": null` on asteroid collectors). They MUST be preserved, not dropped or turned into `undefined`.
+- The `in_inventory[].count` and `grid_count` fields above come from the API docs and are not in the corpus yet.
+
+The 2.1 directions also appear as observed: 4-way entities use 0/4/8/12, ground rails and signals add the diagonals 2/6/10/14, and elevated and curved rails use all 16 values.
 
 ## Version handling
 
-`version` is a 64-bit integer packing `major.minor.patch.build`, 16 bits each:
+`version` is an integer packing `major.minor.patch.build`, 16 bits each:
 
 ```
-version = (major << 48) | (minor << 32) | (patch << 16) | build
+version = major * 2^48 + minor * 2^32 + patch * 2^16 + build
 ```
 
-It exceeds `Number.MAX_SAFE_INTEGER`. JSON parsing MUST keep it exact: either a custom parse step that captures the raw number text, or `BigInt` conversion before `JSON.parse` loses precision. Export MUST write it back with the same digits.
+Use multiplication or BigInt to unpack it, not JS bitwise operators (those truncate to 32 bits).
+
+For 2.1.25.10 the value is `562954250027018`, which is **below** `Number.MAX_SAFE_INTEGER` (2^53 − 1). Any version with major < 32 fits exactly in a JS number, so plain `JSON.parse` / `JSON.stringify` round-trip it without loss. No special big-number parsing is needed. The codec MUST still check `Number.isSafeInteger(version)` and fail with a clear error if a future version breaks that assumption.
+
+JSON parsing notes for round-trip:
+
+- Floats in positions (`x.5`) and other numbers round-trip exactly through `JSON.parse` / `JSON.stringify`.
+- JS objects put **integer-like keys first, in ascending order**, whatever their order in the source. 1.1 per-entity `connections` (`{"1": …, "2": …}`) uses such keys. The round-trip test (deep-equal) is unaffected. If byte-level key order ever matters, those objects need special handling.
 
 **1.1 blueprints** (major < 2) MUST import through a migration step:
 
 - 8-way `direction` → 16-way (×2).
-- Per-entity `connections` / `neighbours` → top-level `wires`.
+- Per-entity `connections` / `neighbours` → top-level `wires`. 1.1 connection point `"1"` maps to connectors 1 (red) and 2 (green), and point `"2"` (combinator output) to 3 and 4. A missing `circuit_id` means 1. Copper `neighbours` map to 5. Each wire is listed on both of its entities in 1.1, so it is written once.
 - `items` as `{ name: count }` → 2.0 insert plans.
-- Entities and items renamed in 2.0 (for example `filter-inserter` → `fast-inserter` with filters, `stack-filter-inserter` → `bulk-inserter`) through a rename table.
+- Prototype renames, taken from the game's own `data/base/migrations` files and applied in `migrations.txt` order. For example `filter-inserter` → `fast-inserter`, `stack-filter-inserter` → `bulk-inserter`, and 1.1's `stack-inserter` → `bulk-inserter` (the "1.2.0 stack inserter rename" swap). Former filter inserters get `use_filters: true`.
+- Train schedules: the 1.1 list of records becomes `{ records: […] }`.
+
+Implementation: `src/core/migrate` (`migrate1to2` returns the migrated copy, a list of renames and notes for the UI).
+
+**Verified against the game.** `tests/corpus/legacy-1.1/upgraded/` holds the three 1.1 corpus strings after the game imported and re-exported them (2.1.25). `tests/unit/migrate-oracle.test.ts` checks our migration against them:
+- entity names, positions and directions;
+- every wire, including power switches (`Cu0` / `Cu1` → 5 / 6);
+- module and fuel totals;
+- `use_filters`;
+- upgrade planners.
+
+What the game does on import:
+- 1.1 `straight-rail` / `curved-rail` become the separate `legacy-straight-rail` / `legacy-curved-rail` prototypes (direction ×2). We do the same.
+- It **deletes entities whose settings reference prototypes 2.0 no longer has** (for example the removed `rocket-control-unit` recipe, or 0.14-era item names such as `uranium-rifle-magazine`), and shows an import error without details. We keep them (lossless) and analysis reports them (`unknown-prototype`, spec 06).
+- It **drops copper wires longer than the shorter reach of their two poles**. We keep them and analysis reports `wire-out-of-reach`.
+- It strips modules from machines without module slots, splits fuel into stacks of the item's stack size, and fills in defaults (`recipe_quality: "normal"`, `quality` / `comparator` on filters). These need prototype data and are left to analysis and export (M3/M4).
+
+**Still unverified:** inventory ids for entities with item requests that are not in the legacy corpus (mining drills, burner entities, turrets). These are reported as migration notes.
+
+**Not migrated yet:** `control_behavior`, request filters and other settings whose format changed in 2.0 (for example decider conditions → `conditions` / `outputs`, constant combinator and requester filters → `sections`, `circuit_enabled`). They are kept verbatim, so nothing is lost, but analysis may not understand them. See plan task 1.6.
 
 After migration, the blueprint is stamped with the current game version. The UI SHOULD show a "migrated from 1.1" notice.
 
@@ -124,4 +191,4 @@ Rules:
 
 ## Errors
 
-`DecodeError.reason` is one of: `empty`, `bad-version-byte`, `bad-base64`, `bad-zlib`, `too-large`, `bad-json`, `unknown-root`. The UI shows a human message for each.
+`DecodeError.reason` is one of: `empty`, `bad-version-byte`, `bad-base64`, `bad-zlib`, `too-large`, `bad-json`, `unknown-root`, `unsafe-version` (`version` is not a safe JS integer). The UI shows a human message for each (`DecodeError.userMessage`). Implementation: `src/core/codec`.

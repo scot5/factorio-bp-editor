@@ -1,0 +1,27 @@
+{
+  // src/core must stay pure TypeScript: no DOM, no Node, no Electron.
+  // This config type-checks it with only ES library types, so any use of
+  // `window`, `document`, `Buffer`, `process`, etc. fails `pnpm typecheck:core`.
+  "compilerOptions": {
+    "composite": true,
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "types": [],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": false,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "paths": {
+      "@core/*": ["./src/core/*"]
+    }
+  },
+  "include": ["./src/core/**/*"],
+  "exclude": ["./src/core/**/*.test.ts"]
+}

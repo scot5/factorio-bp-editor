@@ -1,0 +1,14 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
+  "include": ["./src/renderer/**/*", "src/core/**/*", "src/preload/*.d.ts"],
+  "exclude": ["./src/core/**/*.test.ts"],
+  "compilerOptions": {
+    "composite": true,
+    "jsx": "react-jsx",
+    "noUncheckedIndexedAccess": true,
+    "paths": {
+      "@core/*": ["./src/core/*"],
+      "@renderer/*": ["./src/renderer/*"]
+    }
+  }
+}

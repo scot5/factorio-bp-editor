@@ -1,0 +1,63 @@
+@import 'tailwindcss';
+
+/* Dark theme in the spirit of the game UI, without its graphics. */
+@theme {
+  --color-panel: #2b2a28;
+  --color-panel-2: #232220;
+  --color-panel-3: #363431;
+  --color-edge: #45423d;
+  --color-ink: #e6e1d8;
+  --color-ink-muted: #9a958c;
+  --color-accent: #ffa200;
+  --color-accent-ink: #1b1b1b;
+  --color-danger: #ff6b5b;
+  --color-ok: #7bd389;
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #1b1b1b;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-edge) transparent;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-1.5 rounded border border-edge bg-panel-3 px-2.5 py-1 text-ink
+      hover:border-accent/60 hover:bg-[#403d39] disabled:opacity-40 disabled:hover:border-edge;
+  }
+  .btn-primary {
+    @apply border-accent bg-accent font-medium text-accent-ink hover:bg-[#ffb52e];
+  }
+  .panel-title {
+    @apply px-3 pt-3 pb-1.5 text-[11px] font-semibold tracking-wide text-ink-muted uppercase;
+  }
+  .kv {
+    @apply grid grid-cols-[minmax(84px,auto)_1fr] gap-x-3 gap-y-1 px-3 text-[12px];
+  }
+  .kv > dt {
+    @apply text-ink-muted;
+  }
+  .kv > dd {
+    @apply m-0 break-words;
+  }
+  .icon-chip {
+    @apply mx-px inline-block rounded-sm bg-white/10 px-1 font-mono text-[0.85em] leading-tight;
+  }
+}
