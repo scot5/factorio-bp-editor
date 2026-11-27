@@ -128,16 +128,23 @@ export function wirePointIndex(
       index = (e.entity['type'] === 'input' ? 4 : 0) + facing4
       break
     default:
-      index =
-        length === 4
-          ? facing4
-          : length === 8
-            ? Math.round(e.direction / 2) % 8
-            : length === 16
-              ? e.direction % 16
-              : 0
+      index = indexByLength(length, e.direction)
   }
   return index < length ? index : 0
+}
+
+/** Lists of 4 are N/E/S/W, of 8 the 8-way directions, of 16 the 16-way ones; else entry 0. */
+function indexByLength(length: number, direction: number): number {
+  switch (length) {
+    case 4:
+      return Math.round(direction / 4) % 4
+    case 8:
+      return Math.round(direction / 2) % 8
+    case 16:
+      return direction % 16
+    default:
+      return 0
+  }
 }
 
 /** Belt connectors in the order X, H, V, SE, SW, NE, NW, from the belt sheet row. */

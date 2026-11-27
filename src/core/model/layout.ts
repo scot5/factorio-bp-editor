@@ -108,6 +108,6 @@ export function layoutBlueprint(blueprint: Blueprint, lookup: PrototypeLookup): 
     tiles,
     wires: blueprintWires(blueprint),
     bounds,
-    unknownNames: [...unknown].sort()
+    unknownNames: [...unknown].sort((a, b) => a.localeCompare(b))
   }
 }

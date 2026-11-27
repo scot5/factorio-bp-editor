@@ -67,35 +67,10 @@ const INDEXING: Readonly<Record<string, WireIndexing>> = {
   'loader-1x1': 'loader'
 }
 
+type PointLists = Partial<Record<'points' | 'output' | 'flipped' | 'elevated', WirePoint[]>>
+
 export function entityWirePoints(type: string, proto: Raw): EntityWirePoints | undefined {
-  let points: WirePoint[] = []
-  let output: WirePoint[] = []
-  let flipped: WirePoint[] = []
-  let elevated: WirePoint[] = []
-
-  if (type === 'electric-pole') points = connectionPoints(proto['connection_points'])
-  else if (COMBINATOR_TYPES.has(type)) {
-    points = connectionPoints(proto['input_connection_points'])
-    output = connectionPoints(proto['output_connection_points'])
-  } else if (type === 'constant-combinator')
-    points = connectionPoints(proto['circuit_wire_connection_points'])
-  else if (type === 'power-switch') {
-    const circuit = connectionPoint(proto['circuit_wire_connection_point'])
-    const left = connectionPoint(proto['left_wire_connection_point'])
-    const right = connectionPoint(proto['right_wire_connection_point'])
-    const both = { ...circuit, ...(left?.copper ? { copper: left.copper } : {}) }
-    if (Object.keys(both).length) points = [both]
-    if (right?.copper) output = [{ copper: right.copper }]
-  } else if (type === 'rail-signal' || type === 'rail-chain-signal') {
-    const ground = proto['ground_picture_set']
-    const high = proto['elevated_picture_set']
-    if (isRecord(ground)) points = signalConnectors(ground)
-    if (isRecord(high)) elevated = signalConnectors(high).map((p) => raise(p, ELEVATED_HEIGHT))
-  } else {
-    points = circuitConnectors(proto['circuit_connector'])
-    flipped = circuitConnectors(proto['circuit_connector_flipped'])
-  }
-
+  const { points = [], output = [], flipped = [], elevated = [] } = pointLists(type, proto)
   if (!points.length) return undefined
   const indexing = INDEXING[type]
   return {
@@ -107,9 +82,50 @@ export function entityWirePoints(type: string, proto: Raw): EntityWirePoints | u
   }
 }
 
+/** The point lists of a prototype, from the fields its type uses. */
+function pointLists(type: string, proto: Raw): PointLists {
+  if (type === 'electric-pole') return { points: connectionPoints(proto['connection_points']) }
+  if (COMBINATOR_TYPES.has(type))
+    return {
+      points: connectionPoints(proto['input_connection_points']),
+      output: connectionPoints(proto['output_connection_points'])
+    }
+  if (type === 'constant-combinator')
+    return { points: connectionPoints(proto['circuit_wire_connection_points']) }
+  if (type === 'power-switch') return powerSwitchPoints(proto)
+  if (type === 'rail-signal' || type === 'rail-chain-signal') {
+    const ground = proto['ground_picture_set']
+    const high = proto['elevated_picture_set']
+    return {
+      ...(isRecord(ground) ? { points: signalConnectors(ground) } : {}),
+      ...(isRecord(high)
+        ? { elevated: signalConnectors(high).map((p) => raise(p, ELEVATED_HEIGHT)) }
+        : {})
+    }
+  }
+  return {
+    points: circuitConnectors(proto['circuit_connector']),
+    flipped: circuitConnectors(proto['circuit_connector_flipped'])
+  }
+}
+
+/** Circuit and left copper as connectors 1/2/5, right copper as connector 6. */
+function powerSwitchPoints(proto: Raw): PointLists {
+  const circuit = connectionPoint(proto['circuit_wire_connection_point'])
+  const left = connectionPoint(proto['left_wire_connection_point'])
+  const right = connectionPoint(proto['right_wire_connection_point'])
+  const both = { ...circuit, ...(left?.copper ? { copper: left.copper } : {}) }
+  return {
+    ...(Object.keys(both).length ? { points: [both] } : {}),
+    ...(right?.copper ? { output: [{ copper: right.copper }] } : {})
+  }
+}
+
 /** `CircuitConnectorDefinition` or an array of them → their wire points and connector sprites. */
 function circuitConnectors(value: unknown): WirePoint[] {
-  const list = Array.isArray(value) ? value : value === undefined ? [] : [value]
+  let list: unknown[] = []
+  if (Array.isArray(value)) list = value
+  else if (value !== undefined) list = [value]
   return list.map((c) => {
     if (!isRecord(c)) return {}
     const point = connectionPoint(c['points']) ?? {}

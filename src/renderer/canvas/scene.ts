@@ -492,27 +492,13 @@ export class Scene {
     g.clear()
     let drawn = 0
     const { scale } = this.camera
-    if (scale >= WIRE_MIN_SCALE) {
-      const visible = this.wireIndex.query(visibleBox(this.camera, this.width, this.height))
-      if (visible.length <= MAX_WIRES) {
-        for (const color of ['copper', 'red', 'green'] as const) {
-          let any = false
-          for (const w of visible) {
-            if (w.color !== color) continue
-            strokeWire(g, w, scale)
-            any = true
-            drawn++
-          }
-          if (any)
-            g.stroke({
-              color: WIRE_COLORS[color],
-              width: Math.min(Math.max(WIRE_WIDTH, scale * WIRE_WIDTH_PER_PX), 4) / scale,
-              cap: 'round',
-              join: 'round'
-            })
-        }
-      }
-    }
+    const visible =
+      scale >= WIRE_MIN_SCALE
+        ? this.wireIndex.query(visibleBox(this.camera, this.width, this.height))
+        : []
+    if (visible.length <= MAX_WIRES)
+      for (const color of ['copper', 'red', 'green'] as const)
+        drawn += strokeWires(g, visible, color, scale)
     this.app.canvas.dataset['wires'] = String(drawn)
   }
 
@@ -687,6 +673,29 @@ export class Scene {
     this.labelPool.push(label)
     return label
   }
+}
+
+/** Strokes the wires of one colour as one path; returns how many there were. */
+function strokeWires(
+  g: Graphics,
+  wires: readonly WireSegment[],
+  color: WireSegment['color'],
+  scale: number
+): number {
+  let count = 0
+  for (const w of wires) {
+    if (w.color !== color) continue
+    strokeWire(g, w, scale)
+    count++
+  }
+  if (count)
+    g.stroke({
+      color: WIRE_COLORS[color],
+      width: Math.min(Math.max(WIRE_WIDTH, scale * WIRE_WIDTH_PER_PX), 4) / scale,
+      cap: 'round',
+      join: 'round'
+    })
+  return count
 }
 
 /**
