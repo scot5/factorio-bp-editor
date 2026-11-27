@@ -77,7 +77,7 @@ void app.whenReady().then(() => {
   const settings = new SettingsStore(join(app.getPath('userData'), 'settings.json'))
   const assets = new AssetService(join(app.getPath('userData'), 'prototype-cache'), settings)
   handleAssetProtocol(() => assets.roots())
-  registerIpcHandlers(assets)
+  registerIpcHandlers(assets, settings)
   createWindow()
   void assets.detect() // reads files only; the game is never started without a click
 

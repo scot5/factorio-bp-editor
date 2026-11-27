@@ -18,6 +18,20 @@
 
 The agent panel docks on the right as a tab next to Analysis, or opens as a separate window.
 
+## Side panel
+
+The right sidebar has **Inspector** and **Analysis** tabs (the agent tab joins them in M6).
+
+**Collapsible sections** (Analysis tab; `src/renderer/panels/Section.tsx`, `store/sections.ts`):
+
+- The tab is built from sections at two levels: **reports** (Inventory, Production, Power; later Validation, Logistics, Circuits) and the **lists** inside them (Bill of materials, Entities, Machines, Outputs, Consumers, …). Each header is a button with a chevron and `aria-expanded`; Enter and Space toggle it. Short key-value summaries and pickers (surface, rate unit) sit at the top of their report's body and are not collapsible.
+- **Header summaries** stay visible when a section is collapsed: lists show their row count, reports a key figure (Inventory "4,531 entities", Production "126 machines", Power "96.6 MW peak"). A report or list that holds warnings (unpowered entities, under-supplied flows, failed surface conditions) shows its header in the danger colour, and the report summary names them ("12 under-supplied", "3 unpowered"), so warnings are not hidden by collapsing. When space is short the summary is truncated, never the title.
+- **Header actions** (for example the bill of materials "Copy") sit beside the toggle, not inside it.
+- **Defaults:** everything is open except the long **Entities** and **Tiles** lists. Warning lists are open by default like the rest.
+- **Collapse all / Expand all** at the top of the tab apply to every section shown this session, nested lists included (a list inside a collapsed report still counts).
+- **Persistence:** the open/closed choice is saved per section id (`inventory`, `inventory.entities`, `production.under`, `power.consumers`, …) in `settings.json` (01 § Persistence), one set for the whole app, not per blueprint. Sections never toggled follow their default, so new sections pick up their default after an update. Renaming a section id resets that section to its default.
+- The Inspector keeps plain headers: its sections are short and change with the selection.
+
 ## Canvas
 
 - World unit = 1 tile. Render at 64 px per tile × zoom, to match high-resolution sprites.

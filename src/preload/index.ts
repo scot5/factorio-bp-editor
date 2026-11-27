@@ -28,6 +28,10 @@ const api: BridgeApi = {
         ipcRenderer.removeListener(IpcChannel.AssetsStatusChanged, handler)
       }
     }
+  },
+  ui: {
+    getSections: () => ipcRenderer.invoke(IpcChannel.UiGetSections),
+    setSections: (state) => ipcRenderer.invoke(IpcChannel.UiSetSections, state)
   }
 }
 

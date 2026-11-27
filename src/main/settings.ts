@@ -1,10 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname } from 'path'
+import type { SectionState } from '@core/ipc'
 
 /** App settings, stored as JSON in `<userData>/settings.json` (docs/spec/01-architecture.md § Persistence). */
 export interface Settings {
   /** Factorio install chosen by the user; overrides detection. */
   gamePath?: string
+  /** Open/closed state of collapsible panel sections (docs/spec/04-visualization.md § Side panel). */
+  sections?: SectionState
 }
 
 export class SettingsStore {

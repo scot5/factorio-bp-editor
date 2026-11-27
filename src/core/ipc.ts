@@ -18,6 +18,8 @@ export const IpcChannel = {
   AssetsLoad: 'assets:load',
   AssetsChooseGamePath: 'assets:choose-game-path',
   AssetsGetDb: 'assets:get-db',
+  UiGetSections: 'ui:get-sections',
+  UiSetSections: 'ui:set-sections',
   /** main → renderer event */
   AssetsStatusChanged: 'assets:status-changed'
 } as const
@@ -60,6 +62,27 @@ export interface AssetStatus {
   gameRunning?: boolean
 }
 
+/**
+ * Which collapsible panel sections are open, by section id (true = open).
+ * Ids not listed use the section's default. See docs/spec/04-visualization.md § Side panel.
+ */
+export type SectionState = Record<string, boolean>
+
+/** Limits on a saved `SectionState`, so a bad renderer cannot bloat settings.json. */
+export const MAX_SECTION_IDS = 200
+export const MAX_SECTION_ID_LENGTH = 64
+
+/** Keeps the valid entries of untrusted section state (string ids within limits, boolean values). */
+export function sanitizeSectionState(value: unknown): SectionState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: SectionState = {}
+  for (const [id, open] of Object.entries(value).slice(0, MAX_SECTION_IDS)) {
+    if (typeof open === 'boolean' && id.length > 0 && id.length <= MAX_SECTION_ID_LENGTH)
+      out[id] = open
+  }
+  return out
+}
+
 export interface BridgeApi {
   app: {
     getInfo(): Promise<AppInfo>
@@ -83,5 +106,11 @@ export interface BridgeApi {
     /** The prototype database, or null when not ready. */
     getDb(): Promise<PrototypeDb | null>
     onStatus(listener: (status: AssetStatus) => void): () => void
+  }
+  ui: {
+    /** Saved open/closed state of collapsible panel sections. */
+    getSections(): Promise<SectionState>
+    /** Replaces the saved section state. */
+    setSections(state: SectionState): Promise<void>
   }
 }

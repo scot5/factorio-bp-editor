@@ -89,6 +89,10 @@ interface BridgeApi {
     respondPermission(requestId: string, decision: PermissionDecision): Promise<void>;
     onEvent(cb: (e: AgentEvent) => void): Unsubscribe;
   };
+  ui: {
+    getSections(): Promise<SectionState>;         // collapsible panel sections (04 § Side panel)
+    setSections(state: SectionState): Promise<void>;
+  };
   toolBridge: {
     // main → renderer: the agent called a blueprint tool
     onToolCall(cb: (call: ToolCall) => Promise<ToolResult>): Unsubscribe;
@@ -109,6 +113,6 @@ Channel names and payloads live in `src/core/ipc.ts` so both sides share the typ
 
 ## Persistence
 
-- `settings.json`: game path, mod-dump options, theme, agent settings.
+- `settings.json`: game path, mod-dump options, theme, agent settings, and the open/closed state of panel sections (`sections`: section id → open; main keeps only string ids up to 64 characters with boolean values, at most 200).
 - `prototype-cache/<factorio-version>-<mods-hash>/`: the processed prototype DB and the extracted icon atlas.
 - `library.json` (later): saved blueprints and history.
