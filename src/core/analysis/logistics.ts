@@ -1,7 +1,7 @@
 import { SpatialIndex, unionBoxes, type Box } from '../geometry'
 import type { BlueprintLayout, EntityLayout } from '../model/layout'
 import { qualityMultiplier, type PrototypeDb } from '../prototypes'
-import { joinedNeighbours, tileIndex } from '../sprites/shapes'
+import { joinedNeighbours, tileIndex, type TileQuery } from '../sprites/shapes'
 import type { ItemRates } from './production'
 import { UnionFind } from './union-find'
 import { undergroundLines } from './undergrounds'
@@ -417,37 +417,11 @@ function fluidSegments(db: PrototypeDb, layout: BlueprintLayout): FluidSegment[]
   const members = layout.entities.filter((e) => SEGMENT_TYPES.has(typeOf(e) ?? ''))
   if (members.length === 0) return []
   const at = tileIndex(db, layout.entities)
-  const sets = new UnionFind(members.map((e) => e.index))
-  for (const e of members)
-    for (const n of joinedNeighbours(db, e, at, 'fluid'))
-      if (sets.has(n.index)) sets.union(e.index, n.index)
-  for (const line of undergroundLines(layout, (name) => db.entities[name]?.type)) {
-    if (line.type !== 'pipe-to-ground') continue
-    const max = db.entities[line.name]?.stats?.maxDistance ?? Infinity
-    for (const p of line.pairs) if (p.distance <= max + 1e-6) sets.union(p.start.index, p.end.index)
-  }
-
-  const segments = new Map<number, FluidSegment & { boxes: Box[] }>()
-  for (const e of members) {
-    const root = sets.find(e.index)
-    let s = segments.get(root)
-    if (!s) {
-      s = { indexes: [], tanks: 0, extent: 0, pumps: [], pumpRate: 0, boxes: [] }
-      segments.set(root, s)
-    }
-    s.indexes.push(e.index)
-    s.boxes.push(e.box)
-    if (typeOf(e) === 'storage-tank') s.tanks++
-  }
+  const sets = joinSegments(db, layout, members, at)
+  const segments = new Map<number, Segment>()
+  for (const e of members) addToSegment(segments, sets.find(e.index), e, typeOf(e))
   for (const e of layout.entities) {
-    if (typeOf(e) !== 'pump') continue
-    const rate = pumpRate(db, e)
-    for (const n of joinedNeighbours(db, e, at, 'fluid')) {
-      const s = sets.has(n.index) ? segments.get(sets.find(n.index)) : undefined
-      if (!s || s.pumps.includes(e.index)) continue
-      s.pumps.push(e.index)
-      s.pumpRate = Math.max(s.pumpRate, rate)
-    }
+    if (typeOf(e) === 'pump') addPump(db, segments, sets, e, joinedNeighbours(db, e, at, 'fluid'))
   }
   return [...segments.values()]
     .map(({ boxes, ...s }) => {
@@ -455,6 +429,60 @@ function fluidSegments(db: PrototypeDb, layout: BlueprintLayout): FluidSegment[]
       return { ...s, extent: Math.max(b.right - b.left, b.bottom - b.top) }
     })
     .sort((a, b) => b.indexes.length - a.indexes.length || a.indexes[0]! - b.indexes[0]!)
+}
+
+type Segment = FluidSegment & { boxes: Box[] }
+
+/** Union of segment members joined by connections or by pipe-to-ground pairs within reach. */
+function joinSegments(
+  db: PrototypeDb,
+  layout: BlueprintLayout,
+  members: EntityLayout[],
+  at: TileQuery
+): UnionFind {
+  const sets = new UnionFind(members.map((e) => e.index))
+  for (const e of members) {
+    for (const n of joinedNeighbours(db, e, at, 'fluid'))
+      if (sets.has(n.index)) sets.union(e.index, n.index)
+  }
+  for (const line of undergroundLines(layout, (name) => db.entities[name]?.type)) {
+    if (line.type !== 'pipe-to-ground') continue
+    const max = db.entities[line.name]?.stats?.maxDistance ?? Infinity
+    for (const p of line.pairs) if (p.distance <= max + 1e-6) sets.union(p.start.index, p.end.index)
+  }
+  return sets
+}
+
+function addToSegment(
+  segments: Map<number, Segment>,
+  root: number,
+  e: EntityLayout,
+  type: string | undefined
+): void {
+  let s = segments.get(root)
+  if (!s) {
+    s = { indexes: [], tanks: 0, extent: 0, pumps: [], pumpRate: 0, boxes: [] }
+    segments.set(root, s)
+  }
+  s.indexes.push(e.index)
+  s.boxes.push(e.box)
+  if (type === 'storage-tank') s.tanks++
+}
+
+function addPump(
+  db: PrototypeDb,
+  segments: Map<number, Segment>,
+  sets: UnionFind,
+  pump: EntityLayout,
+  neighbours: EntityLayout[]
+): void {
+  const rate = pumpRate(db, pump)
+  for (const n of neighbours) {
+    const s = sets.has(n.index) ? segments.get(sets.find(n.index)) : undefined
+    if (!s || s.pumps.includes(pump.index)) continue
+    s.pumps.push(pump.index)
+    s.pumpRate = Math.max(s.pumpRate, rate)
+  }
 }
 
 /** Units per second: `pumping_speed` per tick × 60 × the quality's default multiplier. */

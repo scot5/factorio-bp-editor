@@ -159,14 +159,17 @@ function limitRows(db: PrototypeDb, list: InserterLimitRow[]): Row[] {
   }))
 }
 
+function filterText(db: PrototypeDb, filter: NonNullable<SplitterRow['filter']>): string {
+  const name = displayName(db, 'item', filter.name)
+  return filter.quality ? `${name} (${filter.quality})` : name
+}
+
 function splitterRows(db: PrototypeDb, list: SplitterRow[]): Row[] {
   return list.map((s, i) => {
     const settings = [
       s.inputPriority ? `input ${s.inputPriority}` : '',
       s.outputPriority ? `output ${s.outputPriority}` : '',
-      s.filter
-        ? `filter ${displayName(db, 'item', s.filter.name)}${s.filter.quality ? ` (${s.filter.quality})` : ''}`
-        : ''
+      s.filter ? `filter ${filterText(db, s.filter)}` : ''
     ].filter(Boolean)
     return {
       key: `${s.name}/${i}`,
