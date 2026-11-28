@@ -89,6 +89,11 @@ export interface EntityStats {
   bulk?: boolean
   stackSizeBonus?: number
   maxBeltStackSize?: number
+  /** Inserters: pickup and drop vectors from the centre, for the north-facing inserter (format 11+). */
+  pickupPosition?: [number, number]
+  insertPosition?: [number, number]
+  /** Pumps: fluid units per tick (format 11+). */
+  pumpingSpeed?: number
   /** Electric poles and beacons: supply area half-width in tiles. */
   supplyAreaDistance?: number
   /** Electric poles: copper and circuit wire reach in tiles. */
@@ -336,6 +341,7 @@ export function entityStats(
       type === 'pipe-to-ground' ? undergroundPipeReach(proto) : num(proto['max_distance']),
     beltSpeed: BELT_TYPES.has(type) ? num(proto['speed']) : undefined,
     ...(type === 'inserter' ? inserterStats(proto) : {}),
+    pumpingSpeed: type === 'pump' ? num(proto['pumping_speed']) : undefined,
     supplyAreaDistance: num(proto['supply_area_distance']),
     maxWireDistance: num(proto['maximum_wire_distance']),
     circuitWireMaxDistance:
@@ -377,8 +383,20 @@ function inserterStats(proto: Record<string, unknown>): Partial<EntityStats> {
     extensionSpeed: num(proto['extension_speed']),
     bulk: proto['bulk'] === true || undefined,
     stackSizeBonus: num(proto['stack_size_bonus']) || undefined,
-    maxBeltStackSize: num(proto['max_belt_stack_size'])
+    maxBeltStackSize: num(proto['max_belt_stack_size']),
+    pickupPosition: vector(proto['pickup_position']),
+    insertPosition: vector(proto['insert_position'])
   }
+}
+
+/** A `Vector`: `[x, y]` or `{ x, y }`. */
+function vector(v: unknown): [number, number] | undefined {
+  if (Array.isArray(v) && typeof v[0] === 'number' && typeof v[1] === 'number') return [v[0], v[1]]
+  if (v && typeof v === 'object') {
+    const r = v as Record<string, unknown>
+    if (typeof r['x'] === 'number' && typeof r['y'] === 'number') return [r['x'], r['y']]
+  }
+  return undefined
 }
 
 /** Pipe-to-ground reach: `max_underground_distance` of its underground connection. */

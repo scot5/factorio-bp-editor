@@ -81,6 +81,8 @@ describe('entityStats', () => {
         bulk: true,
         stack_size_bonus: 4,
         max_belt_stack_size: 4,
+        pickup_position: [0, -1],
+        insert_position: { x: 0, y: 1.2 },
         energy_per_movement: '20kJ',
         energy_per_rotation: '20kJ',
         energy_source: { type: 'electric', drain: '1kW' },
@@ -95,8 +97,15 @@ describe('entityStats', () => {
       bulk: true,
       stackSizeBonus: 4,
       maxBeltStackSize: 4,
+      pickupPosition: [0, -1],
+      insertPosition: [0, 1.2],
       circuitWireMaxDistance: 9
     })
+  })
+
+  it('reads the pumping speed of pumps only', () => {
+    expect(entityStats('pump', { pumping_speed: 20 })).toEqual({ pumpingSpeed: 20 })
+    expect(entityStats('offshore-pump', { pumping_speed: 20 })).toBeUndefined()
   })
 
   it('reads belts and undergrounds, but not the speed of other types', () => {

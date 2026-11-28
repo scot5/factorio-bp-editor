@@ -7,6 +7,7 @@ import {
 } from '@core/analysis'
 import { displayName, type PrototypeDb } from '@core/prototypes'
 import { CountTable, type Row } from './CountTable'
+import { LogisticsSection } from './LogisticsSection'
 import { PowerSection } from './PowerSection'
 import { Section } from './Section'
 import { useSections } from '../store/sections'
@@ -27,7 +28,7 @@ const SOURCE_LABELS: Record<MaterialRow['sources'][number], string> = {
   tile: 'tile'
 }
 
-/** Analysis reports of the active blueprint (docs/spec/06-analysis.md): validation, inventory, production and power. */
+/** Analysis reports of the active blueprint (docs/spec/06-analysis.md): validation, inventory, production, logistics and power. */
 export function AnalysisPanel({ current, onSelect }: Readonly<Props>): React.JSX.Element {
   const status = useAnalysis((s) => s.status)
   const result = useAnalysis((s) => s.result)
@@ -51,6 +52,7 @@ export function AnalysisPanel({ current, onSelect }: Readonly<Props>): React.JSX
       />
       <Inventory report={result.inventory} hasGameData={result.hasGameData} onSelect={onSelect} />
       <ProductionSection report={result.production} onSelect={onSelect} />
+      <LogisticsSection report={result.logistics} onSelect={onSelect} />
       <PowerSection report={result.power} onSelect={onSelect} />
     </div>
   )

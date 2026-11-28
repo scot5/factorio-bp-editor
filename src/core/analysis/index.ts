@@ -2,13 +2,15 @@ import { layoutBlueprint, type Blueprint } from '../model'
 import { dbPrototypeLookup, fallbackPrototypeLookup, type PrototypeDb } from '../prototypes'
 import type { TimeUnit } from './format'
 import { inventory, type InventoryReport } from './inventory'
+import { logistics, type LogisticsReport, type ResearchBonuses } from './logistics'
 import { isSpacePlatform, power, type PowerReport } from './power'
-import { production, surfaceProperties, type ProductionReport } from './production'
+import { production, surfaceProperties, type ItemRates, type ProductionReport } from './production'
 import { validation, type ValidationReport } from './validation'
 
 export * from './effects'
 export * from './format'
 export * from './inventory'
+export * from './logistics'
 export * from './power'
 export * from './production'
 export * from './validation'
@@ -26,6 +28,8 @@ export interface AnalysisSettings {
   space?: boolean
   /** Recipe (furnaces) or resource (mining drills) assumed per entity name; see `ProductionSettings`. */
   assume?: Record<string, string>
+  /** Research levels for belt stacking and inserter hand sizes (defaults: `DEFAULT_RESEARCH`). */
+  research?: ResearchBonuses
 }
 
 export const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = { timeUnit: 'minute' }
@@ -40,6 +44,8 @@ export interface AnalysisResult {
   power: PowerReport | null
   /** Needs game data; null without it. */
   production: ProductionReport | null
+  /** Needs game data; null without it. */
+  logistics: LogisticsReport | null
   /** Structural checks always; the rest with game data. */
   validation: ValidationReport
 }
@@ -58,10 +64,22 @@ export function analyse(
         ...(settings.space === undefined ? {} : { space: settings.space })
       })
     : null
+  const machineRates = new Map<number, ItemRates>()
   const productionReport = db
-    ? production(db, layout, {
-        surface: surfaceProperties(db, planet, space),
-        ...(settings.assume ? { assume: settings.assume } : {})
+    ? production(
+        db,
+        layout,
+        {
+          surface: surfaceProperties(db, planet, space),
+          ...(settings.assume ? { assume: settings.assume } : {})
+        },
+        (index, rates) => machineRates.set(index, rates)
+      )
+    : null
+  const logisticsReport = db
+    ? logistics(db, layout, {
+        ...(settings.research ? { research: settings.research } : {}),
+        machineRates
       })
     : null
   return {
@@ -70,6 +88,7 @@ export function analyse(
     inventory: inventory(blueprint, layout, db),
     power: powerReport,
     production: productionReport,
+    logistics: logisticsReport,
     validation: validation(db, layout, { power: powerReport, production: productionReport })
   }
 }

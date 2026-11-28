@@ -5,7 +5,7 @@ All analysis lives in `src/core/analysis` as pure functions of `(blueprint, Prot
 ```ts
 interface AnalysisSettings {
   planet?: string;                 // affects surface conditions and some recipes
-  researchBonuses?: { miningProductivity: number; beltStackSize: number; inserterCapacity: number; … };
+  research?: { beltStackSize?: number; inserterCapacityBonus?: number; bulkInserterCapacityBonus?: number };  // § 3
   assumeFullBeacons?: boolean;
   timeUnit: 'second' | 'minute' | 'hour';
 }
@@ -30,7 +30,7 @@ interface AnalysisSettings {
 - **Footprint:** width and height of the bounds rounded out to whole tiles, and the number of distinct tiles covered by entity footprints or tiles.
 - **Copy** writes `count × display name (quality)` lines. The constant combinator "request" blueprint and the raw-resource expansion are not built yet.
 - **Worker:** `src/renderer/analysis/analysis.worker.ts` runs `analyse()`; the DB is sent once per change, then one message per analysis. `store/analysis.ts` keeps only the latest result and runs whenever the active blueprint or the game data changes. Without edits (before M5) there is no debounce. The slowest corpus blueprint takes about 12 ms.
-- **UI:** the right sidebar has Inspector and Analysis tabs. The Analysis tab shows the Validation report (§ 6), the Inventory report (summary, bill of materials, entities and tiles), then Production and Power, with game icons and display names, in collapsible sections (04 § Side panel; Entities and Tiles start collapsed). Clicking a row selects its entities (04 § Interaction).
+- **UI:** the right sidebar has Inspector and Analysis tabs. The Analysis tab shows the Validation report (§ 6), the Inventory report (summary, bill of materials, entities and tiles), then Production, Logistics and Power, with game icons and display names, in collapsible sections (04 § Side panel; Entities and Tiles start collapsed). Clicking a row selects its entities (04 § Interaction).
 
 ### 2. Production
 
@@ -64,6 +64,19 @@ This is steady-state rate math. It does **not** trace which belt carries what. B
 - Inserter throughput estimates (by type, quality and stack bonus), compared against the machines they feed. Flags inserters that limit a machine.
 - Undergrounds: max distance check. Splitters: priority and filter summary.
 - Fluid: pipe segment lengths and pump counts. A simple flow-limit estimate per segment.
+
+**Implemented in M4 plan step 5** (`src/core/analysis/logistics.ts`; fields in 03 § Logistics fields):
+
+- **Needs game data.** Without a DB, `AnalysisResult.logistics` is `null` and the panel says "Requires game data". Belt and inserter figures are per second, as the game shows them, whatever the production time unit.
+- **Research** (`AnalysisSettings.research`, three pickers at the top of the section): `beltStackSize` 1–4 (1 + the `belt-stack-size-bonus` research effects: the stack inserter technology and the two transport belt capacity levels), `inserterCapacityBonus` (`inserter-stack-size-bonus`, 0–3) and `bulkInserterCapacityBonus` (`bulk-inserter-capacity-bonus`, 0–11). Defaults: stack 1, +0, +1, since researching bulk inserters already gives +1. Settings are not saved between sessions.
+- **Belts:** one row per belt-like prototype (belts, undergrounds, splitters, loaders, linked belts), slowest first: `speed` (tiles per tick) × 60 × 8 items per tile (4 per lane) × belt stack size. Quality does not change belt speed.
+- **Inserters:** one row per name, quality and hand size. Hand size = 1 + `stack_size_bonus` + the bulk or regular capacity research, capped by the blueprint's `override_stack_size` (stack inserter: 1 + 4 + 1 = 6; bulk at max research 12; both as in the wiki's capacity table). Swing time = 2 × (the ticks the arm needs strictly below half a turn) = 2 × (⌈0.5 / rotation speed⌉ − 1), with the rotation speed × the quality's `inserter_speed`. This fits the wiki's chest-to-chest table (inserter 70 ticks, long-handed 48, fast and bulk 24); the wiki gives no formula. Throughput = hand size × swings per second, **chest to chest**: the best case. From belts inserters are slower, and extension speed is ignored.
+- **Limited by inserters:** an inserter serves the machine under its drop position (input) and the machine under its pickup position (output): the prototype's `insert_position` / `pickup_position`, given for the north-facing inserter and turned with its direction. A north-facing inserter picks up north of it and drops south; the corpus confirms it (chests feed rocket silos, belts feed boilers, asteroid collectors feed belts, never the other way). Machines are those with a production rate (§ 2, so assumed furnaces and drills too). Per machine and side, the items per second it uses (item ingredients × crafts per second) or makes (item products, with productivity) are compared with the sum of its inserters' chest-to-chest throughput. Below 99 % it is listed, grouped per machine name, quality and side, with the worst machine's figures (`2.57 of 12/s`) and every machine and inserter involved. Sides without inserters (loaders, direct drill output) are not checked. The list is not a warning: rates assume machines run at full speed, and a mall's machines almost never do (the 1.1 mall has 7 rows. On Step 7 of the rocket book, 102 assembling machine 2s are short on input at default research and 11 at inserter bonus +2).
+- **Undergrounds:** the distance check stays in validation (§ 6). The pairing (`src/core/analysis/undergrounds.ts`) is shared with the fluid segments.
+- **Splitters:** grouped by name, `input_priority`, `output_priority` and `filter` (`{ name, quality, comparator }`; normal quality counts as none), plain ones first.
+- **Fluid segments:** pipes, pipes to ground, storage tanks and infinity pipes joined by matching fluid connections (the sprite join rule, for any entity size: `joinedNeighbours` in `src/core/sprites/shapes.ts`) and by pipe-to-ground pairs within `max_distance`. Pumps and machines sit between segments. Each segment lists its size, its tanks, the longer side of its box in tiles, and the pumps joined to it with the fastest one's rate: `pumping_speed` × 60 × the quality's default multiplier (1,200/s normal, 3,000/s legendary, as the wiki lists). Since 2.0 a segment has **no flow limit inside it** (wiki, Fluid system), so the only limit per segment is its pumps; the 6,000/s limit per connection and the 320-tile spread rule are not checked. Segments are sorted largest first and start collapsed.
+- **Measured:** about 7 ms on the 16,937-entity Step 7 of the rocket book.
+- **Not done:** inserters picking up from belts (lane and stack effects), custom `pickup_position` / `drop_position` vectors, stack inserters stacking on belts (up to `max_belt_stack_size`), inserters dropping on the ground, loaders, splitter lane balance, which fluid a segment carries, fluid mixing, and flow rates per segment.
 
 ### 4. Power
 
