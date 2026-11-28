@@ -21,3 +21,6 @@ yarn.lock
 
 # Planning notes are local only (only specs are committed)
 docs/plan/
+
+# TypeScript incremental build info (from running tsc without --composite false)
+*.tsbuildinfo
