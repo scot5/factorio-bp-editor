@@ -8,6 +8,7 @@ import {
 import { displayName, type PrototypeDb } from '@core/prototypes'
 import { CircuitSection } from './CircuitSection'
 import { CountTable, type Row } from './CountTable'
+import { DiffSection } from './DiffSection'
 import { LogisticsSection } from './LogisticsSection'
 import { PowerSection } from './PowerSection'
 import { Section } from './Section'
@@ -31,7 +32,7 @@ const SOURCE_LABELS: Record<MaterialRow['sources'][number], string> = {
   tile: 'tile'
 }
 
-/** Analysis reports of the active blueprint (docs/spec/06-analysis.md): validation, inventory, production, logistics, power and circuits. */
+/** Analysis reports of the active blueprint (docs/spec/06-analysis.md): validation, inventory, production, logistics, power, circuits and compare. */
 export function AnalysisPanel({
   current,
   onSelect,
@@ -66,6 +67,7 @@ export function AnalysisPanel({
         onSelect={onSelect}
         onSelectNetwork={onSelectNetwork}
       />
+      <DiffSection onSelect={onSelect} />
     </div>
   )
 }

@@ -6,7 +6,8 @@ import {
 } from '@core/analysis'
 import type { Blueprint } from '@core/model'
 import type { PrototypeDb } from '@core/prototypes'
-import type { AnalysisRequest, AnalysisResponse } from '../analysis/protocol'
+import { currentWorkerDb, onWorkerError, requestAnalysis } from '../analysis/client'
+import type { AnalysisResponse } from '../analysis/protocol'
 
 /**
  * Analysis of the active blueprint, computed in a Web Worker
@@ -25,30 +26,18 @@ interface AnalysisState {
   setSettings(settings: AnalysisSettings): void
 }
 
-let worker: Worker | null = null
-let workerDb: PrototypeDb | null | undefined
-let nextId = 1
-
-function post(request: AnalysisRequest): void {
-  if (!worker) {
-    worker = new Worker(new URL('../analysis/analysis.worker.ts', import.meta.url), {
-      type: 'module'
-    })
-    worker.onmessage = (event: MessageEvent<AnalysisResponse>) => onResponse(event.data)
-    worker.onerror = (event) => {
-      useAnalysis.setState({ status: 'error', error: event.message || 'Analysis worker failed.' })
-    }
-  }
-  worker.postMessage(request)
-}
-
 let latest = 0
 
 function onResponse(response: AnalysisResponse): void {
   if (response.id !== latest) return
-  if (response.ok) useAnalysis.setState({ status: 'done', result: response.result, error: null })
-  else useAnalysis.setState({ status: 'error', result: null, error: response.message })
+  if (!response.ok) useAnalysis.setState({ status: 'error', result: null, error: response.message })
+  else if (response.kind === 'analyse')
+    useAnalysis.setState({ status: 'done', result: response.result, error: null })
 }
+
+onWorkerError((message) => {
+  if (latest) useAnalysis.setState({ status: 'error', error: message })
+})
 
 export const useAnalysis = create<AnalysisState>()((set, get) => ({
   status: 'idle',
@@ -58,13 +47,13 @@ export const useAnalysis = create<AnalysisState>()((set, get) => ({
   settings: DEFAULT_ANALYSIS_SETTINGS,
 
   run(blueprint, db) {
-    if (blueprint === get().blueprint && db === workerDb) return
+    if (blueprint === get().blueprint && db === currentWorkerDb()) return
     analyseNow(blueprint, db)
   },
 
   setSettings(settings) {
     set({ settings })
-    analyseNow(get().blueprint, workerDb ?? null)
+    analyseNow(get().blueprint, currentWorkerDb() ?? null)
   }
 }))
 
@@ -75,11 +64,10 @@ function analyseNow(blueprint: Blueprint | null, db: PrototypeDb | null): void {
     set({ status: 'idle', result: null, blueprint: null, error: null })
     return
   }
-  if (db !== workerDb) {
-    post({ kind: 'db', db })
-    workerDb = db
-  }
-  latest = nextId++
   set({ status: 'running', blueprint, error: null })
-  post({ kind: 'analyse', id: latest, blueprint, settings: useAnalysis.getState().settings })
+  latest = requestAnalysis(
+    { kind: 'analyse', blueprint, settings: useAnalysis.getState().settings },
+    db,
+    onResponse
+  )
 }

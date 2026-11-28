@@ -45,3 +45,6 @@ export const BOX_SELECT_COLOR = 0xffa200
 
 /** Wire colours, close to the game's wire sprites. */
 export const WIRE_COLORS = { copper: 0xcf7c00, red: 0xc83718, green: 0x588c38 } as const
+
+/** Diff overlay (docs/spec/04-visualization.md § Overlays): added, removed, changed. */
+export const DIFF_COLORS = { added: 0x7bd389, removed: 0xff6b5b, changed: 0xf5d33d } as const
