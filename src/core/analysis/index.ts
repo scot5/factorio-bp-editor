@@ -1,5 +1,6 @@
 import { layoutBlueprint, type Blueprint } from '../model'
 import { dbPrototypeLookup, fallbackPrototypeLookup, type PrototypeDb } from '../prototypes'
+import { circuits, type CircuitReport } from './circuits'
 import type { TimeUnit } from './format'
 import { inventory, type InventoryReport } from './inventory'
 import { logistics, type LogisticsReport, type ResearchBonuses } from './logistics'
@@ -7,6 +8,7 @@ import { isSpacePlatform, power, type PowerReport } from './power'
 import { production, surfaceProperties, type ItemRates, type ProductionReport } from './production'
 import { validation, type ValidationReport } from './validation'
 
+export * from './circuits'
 export * from './effects'
 export * from './format'
 export * from './inventory'
@@ -48,6 +50,8 @@ export interface AnalysisResult {
   logistics: LogisticsReport | null
   /** Structural checks always; the rest with game data. */
   validation: ValidationReport
+  /** Circuit networks and settings; works without game data. */
+  circuits: CircuitReport
 }
 
 export function analyse(
@@ -55,7 +59,8 @@ export function analyse(
   db: PrototypeDb | null,
   settings: AnalysisSettings = DEFAULT_ANALYSIS_SETTINGS
 ): AnalysisResult {
-  const layout = layoutBlueprint(blueprint, db ? dbPrototypeLookup(db) : fallbackPrototypeLookup)
+  const lookup = db ? dbPrototypeLookup(db) : fallbackPrototypeLookup
+  const layout = layoutBlueprint(blueprint, lookup)
   const planet = settings.planet ?? 'nauvis'
   const space = db ? (settings.space ?? isSpacePlatform(db, layout)) : false
   const powerReport = db
@@ -89,6 +94,7 @@ export function analyse(
     power: powerReport,
     production: productionReport,
     logistics: logisticsReport,
-    validation: validation(db, layout, { power: powerReport, production: productionReport })
+    validation: validation(db, layout, { power: powerReport, production: productionReport }),
+    circuits: circuits(layout, lookup)
   }
 }

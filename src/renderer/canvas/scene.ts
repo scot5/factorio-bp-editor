@@ -67,6 +67,8 @@ const WIRE_WIDTH = 1.5 // screen px, at least
 const WIRE_WIDTH_PER_PX = 0.04 // wider when zoomed in: tiles (×px/tile), up to 4 px
 const WIRE_SEGMENT_PX = 10 // screen px per straight piece of a sagging wire
 const MAX_WIRES = 20000 // visible wires drawn per frame; more are skipped
+const HIGHLIGHT_HALO = 0xffffff // behind highlighted wires
+const HIGHLIGHT_HALO_PX = 3 // screen px of halo around a highlighted wire
 const PX_PER_TILE_AT_SCALE_1 = 32 // Factorio sprites: 32 px per tile at scale 1
 /**
  * Shadows are drawn as one group at this opacity, like the game's shadow pass,
@@ -126,6 +128,10 @@ export class Scene {
   private tileIndex = new SpatialIndex<TileLayout>()
   private readonly wireLayer = new Graphics()
   private wireIndex = new SpatialIndex<WireSegment>()
+  private wiresByIndex = new Map<number, WireSegment>()
+  /** A circuit network picked in the Analysis tab, drawn over everything at any zoom. */
+  private readonly wireHighlightLayer = new Graphics()
+  private wireHighlight: readonly number[] = []
   /** Per-frame footprints and arrows of visible entities not drawn as sprites. */
   private readonly detail = new Graphics()
   private readonly detailArrows = new Graphics()
@@ -177,6 +183,7 @@ export class Scene {
       this.arrows,
       this.detailArrows,
       this.selectionLayer,
+      this.wireHighlightLayer,
       this.hoverLayer,
       this.boxSelect
     )
@@ -223,7 +230,17 @@ export class Scene {
   /** Wires with their world end points (see `wireSegments`). */
   setWires(wires: readonly WireSegment[]): void {
     this.wireIndex = new SpatialIndex<WireSegment>()
-    for (const w of wires) this.wireIndex.insert(w.box, w)
+    this.wiresByIndex = new Map()
+    for (const w of wires) {
+      this.wireIndex.insert(w.box, w)
+      this.wiresByIndex.set(w.wire.index, w)
+    }
+    this.invalidate()
+  }
+
+  /** Wires to highlight, as indexes into the blueprint's `wires` (a circuit network). */
+  setWireHighlight(indexes: readonly number[]): void {
+    this.wireHighlight = indexes
     this.invalidate()
   }
 
@@ -500,6 +517,39 @@ export class Scene {
       for (const color of ['copper', 'red', 'green'] as const)
         drawn += strokeWires(g, visible, color, scale)
     this.app.canvas.dataset['wires'] = String(drawn)
+    this.drawWireHighlight()
+  }
+
+  /**
+   * The highlighted wires with a light halo, wider than normal wires and at
+   * any zoom (a network is worth seeing when zoomed out). The count is on the
+   * canvas as `data-wire-highlight`, for tests.
+   */
+  private drawWireHighlight(): void {
+    const g = this.wireHighlightLayer
+    g.clear()
+    const { scale } = this.camera
+    const wires = this.wireHighlight
+      .slice(0, MAX_WIRES)
+      .map((i) => this.wiresByIndex.get(i))
+      .filter((w) => w !== undefined)
+    const width = Math.min(Math.max(WIRE_WIDTH, scale * WIRE_WIDTH_PER_PX), 4) / scale
+    if (wires.length) {
+      for (const w of wires) strokeWire(g, w, scale)
+      const halo = width * 1.5 + HIGHLIGHT_HALO_PX / scale
+      g.stroke({ color: HIGHLIGHT_HALO, alpha: 0.7, width: halo, cap: 'round', join: 'round' })
+      for (const color of ['red', 'green', 'copper'] as const) {
+        let any = false
+        for (const w of wires)
+          if (w.color === color) {
+            strokeWire(g, w, scale)
+            any = true
+          }
+        if (any)
+          g.stroke({ color: WIRE_COLORS[color], width: width * 1.5, cap: 'round', join: 'round' })
+      }
+    }
+    this.app.canvas.dataset['wireHighlight'] = String(wires.length)
   }
 
   private createSprite(pool: SpritePool): Sprite {

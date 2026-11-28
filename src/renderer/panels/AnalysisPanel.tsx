@@ -6,6 +6,7 @@ import {
   type MaterialRow
 } from '@core/analysis'
 import { displayName, type PrototypeDb } from '@core/prototypes'
+import { CircuitSection } from './CircuitSection'
 import { CountTable, type Row } from './CountTable'
 import { LogisticsSection } from './LogisticsSection'
 import { PowerSection } from './PowerSection'
@@ -20,6 +21,8 @@ interface Props {
   /** True when the analysis result belongs to the blueprint on the canvas. */
   current: boolean
   onSelect(indexes: number[]): void
+  /** Selects a circuit network's entities and highlights its wires. */
+  onSelectNetwork(indexes: number[], wires: number[]): void
 }
 
 const SOURCE_LABELS: Record<MaterialRow['sources'][number], string> = {
@@ -28,8 +31,12 @@ const SOURCE_LABELS: Record<MaterialRow['sources'][number], string> = {
   tile: 'tile'
 }
 
-/** Analysis reports of the active blueprint (docs/spec/06-analysis.md): validation, inventory, production, logistics and power. */
-export function AnalysisPanel({ current, onSelect }: Readonly<Props>): React.JSX.Element {
+/** Analysis reports of the active blueprint (docs/spec/06-analysis.md): validation, inventory, production, logistics, power and circuits. */
+export function AnalysisPanel({
+  current,
+  onSelect,
+  onSelectNetwork
+}: Readonly<Props>): React.JSX.Element {
   const status = useAnalysis((s) => s.status)
   const result = useAnalysis((s) => s.result)
   const error = useAnalysis((s) => s.error)
@@ -54,6 +61,11 @@ export function AnalysisPanel({ current, onSelect }: Readonly<Props>): React.JSX
       <ProductionSection report={result.production} onSelect={onSelect} />
       <LogisticsSection report={result.logistics} onSelect={onSelect} />
       <PowerSection report={result.power} onSelect={onSelect} />
+      <CircuitSection
+        report={result.circuits}
+        onSelect={onSelect}
+        onSelectNetwork={onSelectNetwork}
+      />
     </div>
   )
 }

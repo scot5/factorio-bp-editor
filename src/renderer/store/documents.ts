@@ -42,11 +42,15 @@ interface DocumentState {
   activeId: string | null
   /** Indexes into the active blueprint's `entities`. */
   selection: number[]
+  /** Wires drawn highlighted (indexes into the blueprint's `wires`): a circuit network picked in the Analysis tab. */
+  wireHighlight: number[]
   importString(text: string, fileName?: string): { ok: true } | { ok: false; message: string }
   closeDocument(id: string): void
   setActiveDocument(id: string): void
   setActivePath(path: BookPath): void
   select(indexes: number[], mode?: SelectionMode): void
+  /** Selects a network's entities and highlights its wires; any other selection change clears the wires. */
+  selectNetwork(indexes: number[], wires: number[]): void
   clearSelection(): void
 }
 
@@ -57,6 +61,7 @@ export const useDocuments = create<DocumentState>()(
     documents: [],
     activeId: null,
     selection: [],
+    wireHighlight: [],
 
     importString(text, fileName) {
       let decoded: BlueprintEnvelope
@@ -97,6 +102,7 @@ export const useDocuments = create<DocumentState>()(
         state.documents.push(castDraft(doc))
         state.activeId = doc.id
         state.selection = []
+        state.wireHighlight = []
       })
       return { ok: true }
     },
@@ -109,6 +115,7 @@ export const useDocuments = create<DocumentState>()(
         if (state.activeId === id) {
           state.activeId = state.documents[Math.min(index, state.documents.length - 1)]?.id ?? null
           state.selection = []
+          state.wireHighlight = []
         }
       })
     },
@@ -118,6 +125,7 @@ export const useDocuments = create<DocumentState>()(
         if (state.activeId !== id) {
           state.activeId = id
           state.selection = []
+          state.wireHighlight = []
         }
       })
     },
@@ -128,6 +136,7 @@ export const useDocuments = create<DocumentState>()(
         if (!doc) return
         doc.activePath = [...path]
         state.selection = []
+        state.wireHighlight = []
       })
     },
 
@@ -135,6 +144,7 @@ export const useDocuments = create<DocumentState>()(
       set((state) => {
         if (mode === 'replace') {
           state.selection = [...new Set(indexes)]
+          state.wireHighlight = []
           return
         }
         const current = new Set(state.selection)
@@ -143,12 +153,21 @@ export const useDocuments = create<DocumentState>()(
           else current.add(i)
         }
         state.selection = [...current]
+        state.wireHighlight = []
+      })
+    },
+
+    selectNetwork(indexes, wires) {
+      set((state) => {
+        state.selection = [...new Set(indexes)]
+        state.wireHighlight = [...wires]
       })
     },
 
     clearSelection() {
       set((state) => {
         state.selection = []
+        state.wireHighlight = []
       })
     }
   }))

@@ -27,6 +27,8 @@ interface Props {
   spriteSource: SpriteSource | null
   /** Wires to draw, with their world end points. */
   wires: readonly WireSegment[]
+  /** Wires to highlight (indexes into the blueprint's `wires`). */
+  wireHighlight: readonly number[]
 }
 
 const DRAG_THRESHOLD = 4 // px before a press becomes a drag
@@ -38,7 +40,8 @@ const PAN_STEP = 0.15 // fraction of the view per arrow key press
  * pan, F fits. See docs/spec/04-visualization.md § Interaction (view mode).
  */
 export function BlueprintCanvas(props: Props): React.JSX.Element {
-  const { layout, selection, viewKey, fitRequest, iconSource, spriteSource, wires } = props
+  const { layout, selection, viewKey, fitRequest, iconSource, spriteSource, wires, wireHighlight } =
+    props
   const hostRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<Scene | null>(null)
   const cameraRef = useRef<Camera>({ x: 0, y: 0, scale: 32 })
@@ -100,6 +103,10 @@ export function BlueprintCanvas(props: Props): React.JSX.Element {
   useEffect(() => {
     if (ready) sceneRef.current?.setWires(wires)
   }, [ready, wires])
+
+  useEffect(() => {
+    if (ready) sceneRef.current?.setWireHighlight(wireHighlight)
+  }, [ready, wireHighlight])
 
   // ---------------------------------------------------------------------------
   // Pointer input
