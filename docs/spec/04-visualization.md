@@ -24,8 +24,8 @@ The right sidebar has **Inspector** and **Analysis** tabs (the agent tab joins t
 
 **Collapsible sections** (Analysis tab; `src/renderer/panels/Section.tsx`, `store/sections.ts`):
 
-- The tab is built from sections at two levels: **reports** (Validation, Inventory, Production, Logistics, Power; later Circuits) and the **lists** inside them (Bill of materials, Entities, Machines, Outputs, Consumers, …). Each header is a button with a chevron and `aria-expanded`; Enter and Space toggle it. Short key-value summaries and pickers (surface, rate unit, research levels) sit at the top of their report's body and are not collapsible.
-- **Header summaries** stay visible when a section is collapsed: lists show their row count, reports a key figure (Validation "11 errors · 3 warnings", Inventory "4,531 entities", Production "126 machines", Logistics "2,561 belts · 569 inserters · 7 limited", Power "96.6 MW peak"). A report or list that holds warnings (unpowered entities, under-supplied flows, failed surface conditions) shows its header in the danger colour, and the report summary names them ("12 under-supplied", "3 unpowered"), so warnings are not hidden by collapsing. Machines limited by their inserters (06 § 3) are not shown as warnings: a mall's machines run far below full speed by design, so the list is long and mostly expected there. When space is short the summary is truncated, never the title.
+- The tab is built from sections at two levels: **reports** (Validation, Inventory, Production, Logistics, Power, Circuits) and the **lists** inside them (Bill of materials, Entities, Machines, Outputs, Consumers, …). Each header is a button with a chevron and `aria-expanded`; Enter and Space toggle it. Short key-value summaries and pickers (surface, rate unit, research levels) sit at the top of their report's body and are not collapsible.
+- **Header summaries** stay visible when a section is collapsed: lists show their row count, reports a key figure (Validation "11 errors · 3 warnings", Inventory "4,531 entities", Production "126 machines", Logistics "2,561 belts · 569 inserters · 7 limited", Power "96.6 MW peak", Circuits "5 red · 3 green"). A report or list that holds warnings (unpowered entities, under-supplied flows, failed surface conditions) shows its header in the danger colour, and the report summary names them ("12 under-supplied", "3 unpowered"), so warnings are not hidden by collapsing. Machines limited by their inserters (06 § 3) are not shown as warnings: a mall's machines run far below full speed by design, so the list is long and mostly expected there. When space is short the summary is truncated, never the title.
 - **Header actions** (for example the bill of materials "Copy") sit beside the toggle, not inside it.
 - **Defaults:** everything is open except the long **Entities** and **Tiles** lists the validation **Notes** (info-level findings such as belt ends, which every balancer has) and the logistics **Fluid segments**. Warning lists are open by default like the rest.
 - **Validation first:** the Validation report (06 § 6) opens the tab, so problems show before the long inventory lists. Its lists (Errors, Warnings, Notes) let long labels wrap instead of truncating, since each row is a sentence, and keep the icon's space when a prototype has no icon (unknown names).
@@ -52,7 +52,7 @@ The right sidebar has **Inspector** and **Analysis** tabs (the agent tab joins t
 7. Elevated rails and elevated signals, in the same passes as ground rails plus a fence pass, then other elevated objects
 8. Wires (copper, then red, then green), above every sprite pass and under icons and arrows of entities without sprites. Each wire is a cubic Bézier between its two end points (03 § Wire connection points) that sags downwards by up to 0.94 tiles, less for shorter and steeper wires, straight when vertical (the Factorio Blueprint Editor's curve). Colours `#cf7c00`, `#c83718`, `#588c38`. The width is fixed on screen, 1.5 px, growing to at most 4 px when zoomed in (0.04 tiles). The curve is drawn as straight pieces about 10 px long, since Pixi's own Bézier tessellation is too coarse in tile units. Wire shadows are not drawn. Implemented in `scene.ts` (`drawWires`); `wireSegments` in `src/core/sprites/wires.ts` computes the end points once per layout and game data
 9. Overlays (see below)
-10. Selection, hover, ghost previews
+10. Selection, then the highlighted circuit network's wires (drawn over the selection tint so they stay visible), hover, ghost previews
 
 ### Level of detail
 
@@ -60,6 +60,7 @@ The renderer must stay smooth (≥ 50 fps pan/zoom) for blueprints with **20,000
 
 - Below about 1/4 zoom: skip shadows and wires, and draw entity bodies as coloured footprints from a per-type palette.
 - Wires are drawn from 1/4 zoom up in both sprite and footprint mode, with or without game data: those whose curve box meets the view (a spatial index of the boxes, so a wire crossing the view with both ends outside still shows), at most 20,000 per frame. The drawn count is on the canvas element as `data-wires`, for tests.
+- A highlighted circuit network (see § Overlays) is drawn at every zoom, since a network is worth seeing zoomed out: its wires in their colour at 1.5 × the normal width over a white halo 3 px wider, at most 20,000 wires. The count is on the canvas as `data-wire-highlight`.
 - From 1/4 zoom (16 px per tile) up, entities with game graphics are drawn as sprites, at most 6,000 visible entities (otherwise footprints). Entities without graphics, and those whose sheets are still loading, keep a footprint and icon (and their direction arrow). Inserters show their facing through the arm, so they have no arrow in sprite mode. Implemented in `src/renderer/canvas/scene.ts`, using pooled sprites for visible entities only: one pool per pass above, in that order (`DrawLayer` in `src/core/sprites/types.ts`).
 - Shadows are drawn as one group at 50 % opacity (an `AlphaFilter` on the shadow layer), so overlapping shadows do not get darker, as in the game.
 - Below about 1/16 zoom: a single pre-rendered bitmap of the whole blueprint, updated in the background after edits.
@@ -72,7 +73,7 @@ The renderer must stay smooth (≥ 50 fps pan/zoom) for blueprints with **20,000
 | Recipe icons | Recipe icon on each crafting machine (like alt-mode) |
 | Alt-mode info | Inserter filters, chest filters, train stop names, module icons |
 | Belt flow | Arrows on belts. Optional item colouring from analysis |
-| Circuit networks | Red/green networks highlighted, with network ids |
+| Circuit networks | Red/green networks highlighted, with network ids. **Done so far:** clicking a network in Analysis → Circuits selects its entities and highlights its wires (`selectNetwork` in `store/documents.ts`, `Scene.setWireHighlight`); any other selection change clears the highlight. Not done: a toggle that shows every network with its id on the canvas |
 | Power | Pole supply areas, unpowered entities in red |
 | Logistics | Roboport construction and logistic areas |
 | Beacons | Beacon effect areas and how many beacons reach each machine |
@@ -84,7 +85,7 @@ The renderer must stay smooth (≥ 50 fps pan/zoom) for blueprints with **20,000
 - Hover shows a tooltip: entity name, quality, recipe, position, direction.
 - Click selects. The inspector shows every property, including raw JSON (read-only in view mode).
 - Shift-click or drag-box selects several entities. The inspector shows a summary.
-- Clicking a row in the analysis panel (for example "12× electric-mining-drill") highlights those entities on the canvas.
+- Clicking a row in the analysis panel (for example "12× electric-mining-drill") highlights those entities on the canvas. A circuit network row also highlights the network's wires.
 
 ## Rich text
 

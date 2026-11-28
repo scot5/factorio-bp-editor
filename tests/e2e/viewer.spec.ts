@@ -123,6 +123,70 @@ test('lists validation warnings; rows select the entities involved', async () =>
   await page.getByTestId('tab-inspector').click()
 })
 
+test('lists circuit networks and settings; a network row highlights its wires', async () => {
+  const A = { type: 'virtual', name: 'signal-A' }
+  const B = { type: 'virtual', name: 'signal-B' }
+  await importViaDialog(
+    encode({
+      blueprint: {
+        item: 'blueprint',
+        label: 'Circuit check',
+        version: 562954250027018,
+        entities: [
+          {
+            entity_number: 1,
+            name: 'constant-combinator',
+            position: { x: 0.5, y: 0.5 },
+            control_behavior: {
+              sections: { sections: [{ index: 1, filters: [{ index: 1, ...A, count: 5 }] }] }
+            }
+          },
+          {
+            entity_number: 2,
+            name: 'decider-combinator',
+            position: { x: 3.5, y: 1 },
+            control_behavior: {
+              decider_conditions: {
+                conditions: [{ first_signal: A, comparator: '>' }],
+                outputs: [{ signal: B, copy_count_from_input: false }],
+                else_outputs: []
+              }
+            }
+          },
+          {
+            entity_number: 3,
+            name: 'small-lamp',
+            position: { x: 6.5, y: 0.5 },
+            control_behavior: { circuit_enabled: true, circuit_condition: { first_signal: B } }
+          }
+        ],
+        wires: [
+          [1, 1, 2, 1],
+          [2, 4, 3, 2]
+        ]
+      }
+    } as never)
+  )
+  await expect(page.getByTestId('entity-count')).toHaveText('3 entities')
+  await page.getByTestId('tab-analysis').click()
+  await expect(page.getByTestId('section-circuits-toggle')).toContainText('1 red · 1 green')
+  const settings = page.getByTestId('circuit-settings-row')
+  await expect(settings).toHaveCount(3)
+  await expect(settings.nth(1)).toContainText('signal-A')
+  await expect(settings.nth(1)).toContainText('> 0 then')
+  await expect(settings.nth(2)).toContainText('enabled when')
+
+  const networks = page.getByTestId('circuit-networks-row')
+  await expect(networks).toHaveCount(2)
+  await networks.first().click()
+  await expect(page.getByTestId('selection-count')).toHaveText('2 selected')
+  const canvas = page.getByTestId('blueprint-canvas')
+  await expect(canvas.locator('canvas')).toHaveAttribute('data-wire-highlight', '1')
+  await canvas.press('Escape')
+  await expect(canvas.locator('canvas')).toHaveAttribute('data-wire-highlight', '0')
+  await page.getByTestId('tab-inspector').click()
+})
+
 test('rejects an invalid string with a readable message', async () => {
   await importViaDialog('this is not a blueprint')
   await expect(page.getByTestId('import-error')).toContainText('should start with "0"')

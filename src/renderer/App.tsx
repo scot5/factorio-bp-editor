@@ -44,6 +44,8 @@ export function App(): React.JSX.Element {
   const documents = useDocuments((s) => s.documents)
   const selection = useDocuments((s) => s.selection)
   const select = useDocuments((s) => s.select)
+  const wireHighlight = useDocuments((s) => s.wireHighlight)
+  const selectNetwork = useDocuments((s) => s.selectNetwork)
   const setActiveDocument = useDocuments((s) => s.setActiveDocument)
   const closeDocument = useDocuments((s) => s.closeDocument)
 
@@ -221,6 +223,7 @@ export function App(): React.JSX.Element {
             iconSource={iconSource}
             spriteSource={spriteSource}
             wires={wires}
+            wireHighlight={wireHighlight}
             onSelect={select}
             onHover={setHover}
             onCursor={setCursor}
@@ -286,6 +289,7 @@ export function App(): React.JSX.Element {
               <AnalysisPanel
                 current={blueprint !== null && analysedBlueprint === blueprint}
                 onSelect={(indexes) => select(indexes)}
+                onSelectNetwork={selectNetwork}
               />
             )}
           </div>
