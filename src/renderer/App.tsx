@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useEffect, useMemo, useState } from 'react'
+import { isDirty, type History } from '@core/edit'
 import type { Position } from '@core/geometry'
 import { getNode, layoutBlueprint, type Blueprint } from '@core/model'
 import { wireSegments } from '@core/sprites'
@@ -139,6 +140,23 @@ export function App(): React.JSX.Element {
     return () => window.removeEventListener('paste', onPaste)
   }, [])
 
+  // Undo / redo shortcuts (05 § Tools). Text fields keep their own undo.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input, textarea, [contenteditable="true"]')) return
+      if (!event.ctrlKey || event.altKey) return
+      const key = event.key.toLowerCase()
+      const store = useDocuments.getState()
+      if (key === 'z' && !event.shiftKey) store.undo()
+      else if (key === 'y' || (key === 'z' && event.shiftKey)) store.redo()
+      else return
+      event.preventDefault()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
   // Toasts disappear after a while.
   useEffect(() => {
     if (!toast) return
@@ -199,6 +217,8 @@ export function App(): React.JSX.Element {
           Export
         </button>
         <div className="mx-1 h-5 w-px bg-edge" />
+        <UndoRedo history={doc?.history} />
+        <div className="mx-1 h-5 w-px bg-edge" />
         <button
           className="btn"
           disabled={!layout}
@@ -224,6 +244,15 @@ export function App(): React.JSX.Element {
               >
                 <KindBadge kind={d.kind} />
                 <span className="truncate">{d.title}</span>
+                {isDirty(d.history) && (
+                  <span
+                    className="text-accent"
+                    title="Changed since import or export"
+                    data-testid="dirty"
+                  >
+                    ●
+                  </span>
+                )}
               </button>
               <button
                 className="text-ink-muted hover:text-ink"
@@ -348,6 +377,33 @@ export function App(): React.JSX.Element {
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} />
       {doc && <ExportDialog doc={doc} node={node} open={exportOpen} onOpenChange={setExportOpen} />}
     </div>
+  )
+}
+
+function UndoRedo({ history }: Readonly<{ history: History | undefined }>): React.JSX.Element {
+  const undoStep = history?.undo.at(-1)
+  const redoStep = history?.redo.at(-1)
+  return (
+    <>
+      <button
+        className="btn"
+        disabled={!undoStep}
+        onClick={() => useDocuments.getState().undo()}
+        title={undoStep ? `Undo ${undoStep.label.toLowerCase()} (Ctrl+Z)` : 'Nothing to undo'}
+        data-testid="undo-button"
+      >
+        Undo
+      </button>
+      <button
+        className="btn"
+        disabled={!redoStep}
+        onClick={() => useDocuments.getState().redo()}
+        title={redoStep ? `Redo ${redoStep.label.toLowerCase()} (Ctrl+Y)` : 'Nothing to redo'}
+        data-testid="redo-button"
+      >
+        Redo
+      </button>
+    </>
   )
 }
 

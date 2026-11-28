@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { encode, type BlueprintEnvelope } from '@core/codec'
 import { richTextToPlain } from '@core/richtext'
 import type { EnvelopeNode } from '@core/model'
-import type { OpenDocument } from '../store/documents'
+import { useDocuments, type OpenDocument } from '../store/documents'
 
 /** Export (docs/spec/05-editing.md § Export): the whole document, or the active item only. */
 export function ExportDialog({
@@ -35,14 +35,22 @@ export function ExportDialog({
       ? node.payload['label']
       : doc.title
 
+  // Exporting the whole document counts as saving it (05 § Undo history).
+  const exported = (): void => {
+    if (effectiveScope === 'document') useDocuments.getState().markSaved(doc.id)
+  }
+
   const copy = async (): Promise<void> => {
     await window.api.clipboard.writeText(text)
+    exported()
     setStatus('Copied to the clipboard.')
   }
 
   const save = async (): Promise<void> => {
     const saved = await window.api.files.saveBlueprint(text, richTextToPlain(label))
-    if (saved) setStatus('Saved.')
+    if (!saved) return
+    exported()
+    setStatus('Saved.')
   }
 
   return (

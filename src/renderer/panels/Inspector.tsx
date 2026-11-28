@@ -6,11 +6,12 @@ import {
   type EntityLayout,
   type EnvelopeNode
 } from '@core/model'
+import { setDescription, setLabel } from '@core/edit'
 import { CATEGORY_LABELS } from '../canvas/colors'
+import { EditableText } from '../components/EditableText'
 import { Icon } from '../components/Icon'
 import { kindLabel } from '../components/kinds'
-import { RichText } from '../components/RichText'
-import type { OpenDocument } from '../store/documents'
+import { useDocuments, type OpenDocument } from '../store/documents'
 
 const DIRECTION_NAMES = [
   'N',
@@ -38,7 +39,7 @@ interface Props {
   selection: readonly number[]
 }
 
-/** Read-only inspector (docs/spec/04-visualization.md § Interaction). */
+/** Inspector (docs/spec/04-visualization.md § Interaction, 05 § Inspector editing). */
 export function Inspector({ doc, node, layout, selection }: Props): React.JSX.Element {
   const selected = useMemo(
     () =>
@@ -154,13 +155,21 @@ function NodeDetails({
   const issues = doc.issues
   const wires = Array.isArray(p['wires']) ? p['wires'].length : 0
   const bounds = layout?.bounds
+  const runCommand = useDocuments((s) => s.runCommand)
+  const path = node.path
 
   return (
     <div data-testid="inspector-node">
       <div className="panel-title">{kindLabel(node.kind)}</div>
       <dl className="kv">
         <dt>Label</dt>
-        <dd>{label ? <RichText text={label} /> : <span className="text-ink-muted">–</span>}</dd>
+        <dd>
+          <EditableText
+            value={label}
+            onCommit={(text) => runCommand(setLabel, { path, text })}
+            testId="node-label"
+          />
+        </dd>
         <dt>Game version</dt>
         <dd>{version}</dd>
         {layout && (
@@ -183,14 +192,16 @@ function NodeDetails({
           </>
         )}
       </dl>
-      {description && (
-        <>
-          <div className="panel-title mt-2">Description</div>
-          <p className="mx-3 my-0 whitespace-pre-wrap text-[12px]">
-            <RichText text={description} />
-          </p>
-        </>
-      )}
+      <div className="panel-title mt-2">Description</div>
+      <div className="mx-3 my-0 text-[12px]">
+        <EditableText
+          value={description}
+          multiline
+          placeholder="No description. Click to add one."
+          onCommit={(text) => runCommand(setDescription, { path, text })}
+          testId="node-description"
+        />
+      </div>
 
       {doc.migration && (
         <>
