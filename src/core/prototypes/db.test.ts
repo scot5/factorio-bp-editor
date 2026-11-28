@@ -4,7 +4,8 @@ import {
   dbPrototypeLookup,
   DB_FORMAT_VERSION,
   displayName,
-  iconCategoryFor
+  iconCategoryFor,
+  poleWireReachBonus
 } from './db'
 
 // A tiny excerpt in the shape of data-raw-dump.json.
@@ -553,6 +554,91 @@ describe('buildPrototypeDb analysis fields (format 7)', () => {
 
   it('stores no names without a locale', () => {
     expect(buildPrototypeDb(excerpt as never, { gameVersion: 'x', mods: [] }).names).toEqual({})
+  })
+})
+
+describe('buildPrototypeDb validation fields (format 10)', () => {
+  const box = [
+    [-0.4, -0.4],
+    [0.4, 0.4]
+  ]
+  const excerpt = {
+    'utility-constants': {
+      default: {
+        name: 'default',
+        default_collision_masks: {
+          'transport-belt': { layers: { object: true, floor: true, transport_belt: true } },
+          'electric-pole': { layers: { object: true, item: true } }
+        }
+      }
+    },
+    'transport-belt': { 'transport-belt': { name: 'transport-belt', collision_box: box } },
+    'electric-pole': {
+      'big-electric-pole': {
+        name: 'big-electric-pole',
+        collision_box: box,
+        maximum_wire_distance: 32,
+        collision_mask: { layers: { object: true, elevated_rail: true } }
+      }
+    },
+    'simple-entity-with-owner': {
+      decal: {
+        name: 'decal',
+        collision_box: box,
+        collision_mask: { layers: { doodad: true }, colliding_with_tiles_only: true }
+      },
+      rock: {
+        name: 'rock',
+        collision_box: box,
+        collision_mask: { layers: { object: true }, not_colliding_with_itself: true }
+      }
+    },
+    'power-switch': {
+      'power-switch': { name: 'power-switch', collision_box: box, wire_max_distance: 10 }
+    },
+    recipe: {
+      'casting-iron': { name: 'casting-iron', allow_quality: false, allow_speed: true },
+      limited: { name: 'limited', allowed_module_categories: ['speed'] }
+    },
+    quality: {
+      normal: { name: 'normal', level: 0 },
+      rare: { name: 'rare', level: 2 },
+      odd: { name: 'odd', level: 1, electric_pole_wire_reach_bonus: 5 }
+    }
+  }
+  const db = buildPrototypeDb(excerpt as never, { gameVersion: '2.1.25', mods: [] })
+
+  it('resolves collision layers from the prototype, else the type default', () => {
+    expect(db.entities['transport-belt']!.collisionLayers).toEqual([
+      'floor',
+      'object',
+      'transport_belt'
+    ])
+    expect(db.entities['big-electric-pole']!.collisionLayers).toEqual(['elevated_rail', 'object'])
+    expect(db.entities['decal']!.collisionLayers).toEqual([])
+    expect(db.entities['rock']).toMatchObject({
+      collisionLayers: ['object'],
+      notCollidingWithItself: true
+    })
+    // no default for the type and no own mask: unknown
+    expect(db.entities['power-switch']!.collisionLayers).toBeUndefined()
+  })
+
+  it('reads the power switch wire reach', () => {
+    expect(db.entities['power-switch']!.stats?.circuitWireMaxDistance).toBe(10)
+  })
+
+  it('stores recipe module limits', () => {
+    expect(db.recipes['casting-iron']).toMatchObject({ disallowedEffects: ['quality'] })
+    expect(db.recipes['limited']).toMatchObject({ allowedModuleCategories: ['speed'] })
+    expect(db.recipes['limited']!.disallowedEffects).toBeUndefined()
+  })
+
+  it('gives poles 2 × level extra wire reach unless the quality sets it', () => {
+    expect(poleWireReachBonus(db.qualities['normal'])).toBe(0)
+    expect(poleWireReachBonus(db.qualities['rare'])).toBe(4)
+    expect(poleWireReachBonus(db.qualities['odd'])).toBe(5)
+    expect(poleWireReachBonus(undefined)).toBe(0)
   })
 })
 

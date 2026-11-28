@@ -4,12 +4,14 @@ import type { TimeUnit } from './format'
 import { inventory, type InventoryReport } from './inventory'
 import { isSpacePlatform, power, type PowerReport } from './power'
 import { production, surfaceProperties, type ProductionReport } from './production'
+import { validation, type ValidationReport } from './validation'
 
 export * from './effects'
 export * from './format'
 export * from './inventory'
 export * from './power'
 export * from './production'
+export * from './validation'
 
 /**
  * Blueprint analysis (docs/spec/06-analysis.md). A pure function of
@@ -38,6 +40,8 @@ export interface AnalysisResult {
   power: PowerReport | null
   /** Needs game data; null without it. */
   production: ProductionReport | null
+  /** Structural checks always; the rest with game data. */
+  validation: ValidationReport
 }
 
 export function analyse(
@@ -48,21 +52,24 @@ export function analyse(
   const layout = layoutBlueprint(blueprint, db ? dbPrototypeLookup(db) : fallbackPrototypeLookup)
   const planet = settings.planet ?? 'nauvis'
   const space = db ? (settings.space ?? isSpacePlatform(db, layout)) : false
+  const powerReport = db
+    ? power(db, layout, {
+        ...(settings.planet ? { planet: settings.planet } : {}),
+        ...(settings.space === undefined ? {} : { space: settings.space })
+      })
+    : null
+  const productionReport = db
+    ? production(db, layout, {
+        surface: surfaceProperties(db, planet, space),
+        ...(settings.assume ? { assume: settings.assume } : {})
+      })
+    : null
   return {
     hasGameData: db !== null,
     timeUnit: settings.timeUnit,
     inventory: inventory(blueprint, layout, db),
-    power: db
-      ? power(db, layout, {
-          ...(settings.planet ? { planet: settings.planet } : {}),
-          ...(settings.space === undefined ? {} : { space: settings.space })
-        })
-      : null,
-    production: db
-      ? production(db, layout, {
-          surface: surfaceProperties(db, planet, space),
-          ...(settings.assume ? { assume: settings.assume } : {})
-        })
-      : null
+    power: powerReport,
+    production: productionReport,
+    validation: validation(db, layout, { power: powerReport, production: productionReport })
   }
 }

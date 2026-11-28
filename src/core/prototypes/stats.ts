@@ -93,7 +93,7 @@ export interface EntityStats {
   supplyAreaDistance?: number
   /** Electric poles: copper and circuit wire reach in tiles. */
   maxWireDistance?: number
-  /** Other wireable entities: circuit wire reach in tiles. */
+  /** Other wireable entities: circuit wire reach in tiles (power switches: `wire_max_distance`). */
   circuitWireMaxDistance?: number
   miningSpeed?: number
   resourceCategories?: string[]
@@ -338,7 +338,8 @@ export function entityStats(
     ...(type === 'inserter' ? inserterStats(proto) : {}),
     supplyAreaDistance: num(proto['supply_area_distance']),
     maxWireDistance: num(proto['maximum_wire_distance']),
-    circuitWireMaxDistance: num(proto['circuit_wire_max_distance']) || undefined,
+    circuitWireMaxDistance:
+      num(proto['circuit_wire_max_distance'] ?? proto['wire_max_distance']) || undefined,
     miningSpeed: num(proto['mining_speed']),
     resourceCategories: strings(proto['resource_categories']),
     distributionEffectivity: num(proto['distribution_effectivity']),

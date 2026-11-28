@@ -2,7 +2,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { launchApp } from './launch'
-import { decode } from '../../src/core/codec'
+import { decode, encode } from '../../src/core/codec'
 
 /** M2 viewer end to end (plan task 2.10). */
 
@@ -77,6 +77,47 @@ test('analyses the blueprint in the worker; rows select their entities', async (
   await page.getByTestId('section-inventory.entities-toggle').click()
   await page.getByTestId('entities-row').first().click()
   await expect(page.getByTestId('selection-count')).toHaveText('8 selected')
+  await page.getByTestId('blueprint-canvas').press('Escape')
+  // Validation runs its structural checks without game data.
+  await expect(page.getByTestId('section-validation-toggle')).toContainText('no problems')
+  await page.getByTestId('tab-inspector').click()
+})
+
+test('lists validation warnings; rows select the entities involved', async () => {
+  const entity = (
+    n: number,
+    name: string,
+    x: number,
+    extra: Record<string, string | number> = {}
+  ): Record<string, unknown> => ({
+    entity_number: n,
+    name,
+    position: { x, y: 0.5 },
+    ...extra
+  })
+  await importViaDialog(
+    encode({
+      blueprint: {
+        item: 'blueprint',
+        label: 'Validation check',
+        version: 562954250027018,
+        entities: [
+          entity(1, 'wooden-chest', 0.5),
+          entity(2, 'iron-chest', 0.5),
+          entity(3, 'underground-belt', 5.5, { direction: 4, type: 'input' })
+        ]
+      }
+    } as never)
+  )
+  await expect(page.getByTestId('entity-count')).toHaveText('3 entities')
+  await page.getByTestId('tab-analysis').click()
+  const toggle = page.getByTestId('section-validation-toggle')
+  await expect(toggle).toContainText('1 error · 1 warning')
+  await expect(page.getByTestId('validation-error-row')).toHaveCount(1)
+  await expect(page.getByTestId('validation-error-row')).toContainText('overlaps')
+  await expect(page.getByTestId('validation-warning-row')).toContainText('without its other end')
+  await page.getByTestId('validation-error-row').click()
+  await expect(page.getByTestId('selection-count')).toHaveText('2 selected')
   await page.getByTestId('blueprint-canvas').press('Escape')
   await page.getByTestId('tab-inspector').click()
 })

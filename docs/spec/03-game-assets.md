@@ -106,6 +106,14 @@ Added in M4 plan step 3 for the production report (06 § 2). Checked against the
 - **`EntityStats.fixedRecipe`:** crafting machines with `fixed_recipe` (rocket silo `rocket-part`, captive biter spawner `biter-egg`). **`ItemStats.spoilTicks`:** `spoil_ticks` (Space Age; e.g. iron bacteria 3600).
 - **Quality:** `QualityPrototype` has `crafting_machine_speed_multiplier` but no mining speed multiplier, so drill quality does not change mining speed here. `CraftingMachinePrototype::crafting_speed_quality_multiplier` (overrides the quality multiplier) is not read; no vanilla machine sets it.
 
+### Validation fields (DB format 10)
+
+Added in M4 plan step 4 for validation (06 § 6). Checked against the 2.1.25 dump and `prototype-api.json`.
+
+- **`EntityProto.collisionLayers`:** the layer names of the prototype's `collision_mask`, else of `utility-constants.default.default_collision_masks[type]` (every entity type has an entry there; 347 prototypes override it, almost all decoratives and planet scenery; buildables that do: big electric pole, oil refinery and agricultural tower add `elevated_rail`, offshore pump, thruster, asteroid collector, tesla turret). Sorted; empty when `colliding_with_tiles_only`. `notCollidingWithItself` copies `not_colliding_with_itself`. The game's collision rule is "two entities collide when their layer sets intersect".
+- **Recipe module limits:** `RecipeProto.disallowedEffects` lists the effects whose `allow_consumption` / `allow_speed` / `allow_pollution` / `allow_quality` is false (31 vanilla recipes set `allow_quality: false`, the casting and other foundry recipes among them; none sets the others). `allowedModuleCategories` copies `allowed_module_categories` (no vanilla recipe sets it). Productivity keeps using `allowProductivity`.
+- **Wire reach:** power switches name their reach `wire_max_distance`, not `circuit_wire_max_distance`; `EntityStats.circuitWireMaxDistance` reads either. Both default to 0 in the API (no wires). `QualityProto.wireReachBonus` copies `electric_pole_wire_reach_bonus` when a quality sets it; `poleWireReachBonus` defaults it to 2 × level, as the API documents (no vanilla quality sets it).
+
 ### Typed schemas
 
 `doc-html/prototype-api.json` describes every prototype type and property in machine-readable form. Use it at build time to generate TypeScript types for the parts of the dump the app reads. Do not hand-write them.
