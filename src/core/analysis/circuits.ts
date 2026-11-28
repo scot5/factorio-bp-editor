@@ -424,33 +424,36 @@ function readOn(cb: Settings, rule: ReadRule, type: string | undefined): boolean
   return rule.flag === 'read_charge' && type === 'accumulator'
 }
 
+/** One reading: its line, and what it sends (its named signals, else the label). */
+function addReading(
+  out: Behaviour,
+  label: string,
+  signals: readonly CircuitSignal[],
+  index: number
+): void {
+  if (signals.length === 0) {
+    out.lines.push(`outputs ${label}`)
+    out.sends.push({ label, sources: [index] })
+    return
+  }
+  out.lines.push(`outputs ${label} as ${signals.map(signalTag).join(', ')}`)
+  for (const signal of signals) out.sends.push({ signal, sources: [index] })
+}
+
 function readerBehaviour(cb: Settings, type: string | undefined, index: number): Behaviour {
-  const lines: string[] = []
-  const sends: CarriedSignal[] = []
+  const out: Behaviour = { lines: [], sends: [], reads: false }
   for (const rule of READS) {
     if (!readOn(cb, rule, type)) continue
-    const { label } = rule
     const signals = (rule.signals ?? [])
       .map((f) => circuitSignal(cb[f]))
       .filter((s) => s !== undefined)
-    lines.push(
-      signals.length
-        ? `outputs ${label} as ${signals.map(signalTag).join(', ')}`
-        : `outputs ${label}`
-    )
-    if (signals.length) for (const signal of signals) sends.push({ signal, sources: [index] })
-    else sends.push({ label, sources: [index] })
+    addReading(out, rule.label, signals, index)
   }
-  if (flag(cb, 'circuit_read_hand_contents')) {
-    const label = type === 'inserter' ? 'hand contents' : 'belt contents'
-    lines.push(`outputs ${label}`)
-    sends.push({ label, sources: [index] })
-  }
-  if (type === 'storage-tank' && integer(cb['circuit_mode_of_operation'], 0) === 0) {
-    lines.push('outputs contents')
-    sends.push({ label: 'contents', sources: [index] })
-  }
-  return { lines, sends, reads: false }
+  if (flag(cb, 'circuit_read_hand_contents'))
+    addReading(out, type === 'inserter' ? 'hand contents' : 'belt contents', [], index)
+  if (type === 'storage-tank' && integer(cb['circuit_mode_of_operation'], 0) === 0)
+    addReading(out, 'contents', [], index)
+  return out
 }
 
 function conditionLines(cb: Settings, type: string | undefined): string[] {
@@ -609,6 +612,23 @@ interface Member {
   behaviour: Behaviour
 }
 
+/**
+ * Whether an entity sends to and reads from the network at this end: a
+ * combinator sends on its output connectors and reads on its input ones;
+ * other entities follow `output_networks` / `input_networks`.
+ */
+function endRole(m: Member, end: WireEnd, color: CircuitColor): { sends: boolean; reads: boolean } {
+  if (m.type !== undefined && COMBINATOR_TYPES.has(m.type)) {
+    const output = isOutputConnector(end.connector)
+    return { sends: output, reads: !output }
+  }
+  const cb = record(m.layout.entity['control_behavior']) ?? {}
+  return {
+    sends: onColour(cb, 'output_networks', color),
+    reads: onColour(cb, 'input_networks', color)
+  }
+}
+
 function buildNetwork(
   color: CircuitColor,
   ends: readonly WireEnd[],
@@ -622,13 +642,9 @@ function buildNetwork(
     if (!m) continue
     const index = m.layout.index
     indexes.add(index)
-    const cb = record(m.layout.entity['control_behavior']) ?? {}
-    const combinator = m.type !== undefined && COMBINATOR_TYPES.has(m.type)
-    const output = combinator && isOutputConnector(end.connector)
-    if (combinator ? output : onColour(cb, 'output_networks', color))
-      for (const s of m.behaviour.sends) signals.add(s)
-    const input = combinator ? !output : onColour(cb, 'input_networks', color)
-    if (m.behaviour.reads && input) readers.add(index)
+    const { sends, reads } = endRole(m, end, color)
+    if (sends) for (const s of m.behaviour.sends) signals.add(s)
+    if (reads && m.behaviour.reads) readers.add(index)
   }
   return {
     color,
