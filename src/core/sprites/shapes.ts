@@ -342,6 +342,45 @@ export function connectedSides(
   return sides
 }
 
+/**
+ * Entities of any size joined to `e` through a fluid or heat connection: each
+ * side's connection points at the other's connection tile, as in
+ * `connectedSides`. Used for fluid segments (06 § 3 Logistics).
+ */
+export function joinedNeighbours(
+  db: PrototypeDb,
+  e: EntityLayout,
+  at: TileQuery,
+  kind: 'fluid' | 'heat'
+): EntityLayout[] {
+  const out: EntityLayout[] = []
+  const own = activeConnections(db, e, db.entities[e.entity.name], kind)
+  for (const c of own) {
+    const tile = connectionTile(e, c)
+    const target = neighbourTile(tile, (Math.round(c.direction / 4) * 4) % 16)
+    for (const { layout: n, proto: nProto } of at(target[0], target[1])) {
+      if (n === e || out.includes(n)) continue
+      const joined = activeConnections(db, n, nProto, kind).some((nc) => {
+        if (!sharesCategory(c.categories, nc.categories)) return false
+        const from = connectionTile(n, nc)
+        if (from[0] !== target[0] || from[1] !== target[1]) return false
+        const back = neighbourTile(from, (Math.round(nc.direction / 4) * 4) % 16)
+        return back[0] === tile[0] && back[1] === tile[1]
+      })
+      if (joined) out.push(n)
+    }
+  }
+  return out
+}
+
+/** The tile a placed connection sits on. */
+function connectionTile(e: EntityLayout, c: PlacedConnection): [number, number] {
+  return [
+    Math.floor((e.box.left + e.box.right) / 2 + c.position[0]),
+    Math.floor((e.box.top + e.box.bottom) / 2 + c.position[1])
+  ]
+}
+
 interface PlacedConnection {
   position: [number, number]
   direction: number

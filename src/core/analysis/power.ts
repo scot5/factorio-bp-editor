@@ -3,6 +3,7 @@ import type { BlueprintLayout, EntityLayout } from '../model/layout'
 import { WireConnectorId, wireNetworks } from '../model/wires'
 import { qualityMultiplier, type EntityProto, type PrototypeDb } from '../prototypes'
 import { entityEffects, type ReceiverEffects } from './effects'
+import { UnionFind } from './union-find'
 
 /**
  * Power report: electric draw and drain, generation, heat, accumulators, pole
@@ -393,32 +394,6 @@ export function power(
 export function supplyArea(pole: EntityLayout, distance: number): Box {
   const { x, y } = boxCenter(pole.box)
   return { left: x - distance, top: y - distance, right: x + distance, bottom: y + distance }
-}
-
-/** Union-find over layout indexes. */
-class UnionFind {
-  private readonly parent = new Map<number, number>()
-
-  constructor(items: Iterable<number>) {
-    for (const i of items) this.parent.set(i, i)
-  }
-
-  has(i: number): boolean {
-    return this.parent.has(i)
-  }
-
-  find(i: number): number {
-    let root = i
-    while (this.parent.get(root) !== root) root = this.parent.get(root)!
-    this.parent.set(i, root)
-    return root
-  }
-
-  union(a: number, b: number): void {
-    const ra = this.find(a)
-    const rb = this.find(b)
-    if (ra !== rb) this.parent.set(ra, rb)
-  }
 }
 
 /**

@@ -114,6 +114,14 @@ Added in M4 plan step 4 for validation (06 § 6). Checked against the 2.1.25 dum
 - **Recipe module limits:** `RecipeProto.disallowedEffects` lists the effects whose `allow_consumption` / `allow_speed` / `allow_pollution` / `allow_quality` is false (31 vanilla recipes set `allow_quality: false`, the casting and other foundry recipes among them; none sets the others). `allowedModuleCategories` copies `allowed_module_categories` (no vanilla recipe sets it). Productivity keeps using `allowProductivity`.
 - **Wire reach:** power switches name their reach `wire_max_distance`, not `circuit_wire_max_distance`; `EntityStats.circuitWireMaxDistance` reads either. Both default to 0 in the API (no wires). `QualityProto.wireReachBonus` copies `electric_pole_wire_reach_bonus` when a quality sets it; `poleWireReachBonus` defaults it to 2 × level, as the API documents (no vanilla quality sets it).
 
+### Logistics fields (DB format 11)
+
+Added in M4 plan step 5 for logistics (06 § 3). Checked against the 2.1.25 dump.
+
+- **Inserters:** `EntityStats.pickupPosition` and `insertPosition` copy `pickup_position` and `insert_position` (vectors for the north-facing inserter: `[0, -1]` and `[0, 1.2]`, long-handed `[0, -2]` and `[0, 2.2]`). Rotation speed, `bulk`, `stack_size_bonus` and `max_belt_stack_size` were already stored (format 7).
+- **Pumps:** `EntityStats.pumpingSpeed` copies `pumping_speed` (fluid units per tick; vanilla 20, so 1,200/s).
+- **Research:** the capacity and belt stacking bonuses are technology effects (`inserter-stack-size-bonus`, `bulk-inserter-capacity-bonus`, `belt-stack-size-bonus`), not stored; the user picks levels in the Logistics section.
+
 ### Typed schemas
 
 `doc-html/prototype-api.json` describes every prototype type and property in machine-readable form. Use it at build time to generate TypeScript types for the parts of the dump the app reads. Do not hand-write them.

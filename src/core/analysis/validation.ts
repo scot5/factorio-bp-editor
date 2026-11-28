@@ -1,4 +1,4 @@
-import { directionVector, isCardinal, SpatialIndex, type Box, type Direction } from '../geometry'
+import { isCardinal, SpatialIndex, type Box, type Direction } from '../geometry'
 import type { BlueprintLayout, EntityLayout } from '../model/layout'
 import type { BlueprintEntity } from '../model/schema'
 import {
@@ -12,6 +12,7 @@ import {
 } from '../prototypes'
 import { MODULE_EFFECTS, type ModuleEffect } from '../prototypes/stats'
 import { feedsForward, tileIndex } from '../sprites/shapes'
+import { undergroundLines, type UndergroundLine } from './undergrounds'
 import { installedModules, isBeneficial, type InstalledModule } from './effects'
 import type { PowerReport } from './power'
 import type { ProductionReport, SurfaceWarning } from './production'
@@ -626,63 +627,15 @@ function checkWires(out: Warnings, db: PrototypeDb, layout: BlueprintLayout): vo
 
 // ---------------------------------------------------------------- undergrounds and belts
 
-interface UndergroundEnd {
-  e: EntityLayout
-  /** The end the run starts from (belt input; pipe-to-ground facing against the line). */
-  opener: boolean
-  /** Position along the line. */
-  t: number
-}
-
-/**
- * Line and role of an underground belt or pipe-to-ground. An underground
- * belt's direction is the flow direction for both ends; a pipe-to-ground's
- * direction is its above-ground side, so a pair faces away from each other.
- */
-function undergroundEnd(
-  e: EntityLayout,
-  type: string
-): { key: string; end: UndergroundEnd } | undefined {
-  if (!isCardinal(e.direction)) return undefined
-  const d = e.direction
-  const pipe = type === 'pipe-to-ground'
-  // Pipes: one canonical flow per axis (south or east).
-  const axisFlow = d === 0 || d === 8 ? 8 : 4
-  const flow = pipe ? axisFlow : d
-  const v = directionVector(flow as Direction)
-  const { x, y } = e.entity.position
-  const across = v.x === 0 ? x : y
-  return {
-    key: `${e.entity.name}|${flow}|${across.toFixed(2)}`,
-    end: {
-      e,
-      opener: pipe ? d !== flow : e.entity['type'] !== 'output',
-      t: x * v.x + y * v.y
-    }
-  }
-}
-
 function checkUndergrounds(
   out: Warnings,
   db: PrototypeDb | null,
   layout: BlueprintLayout,
   typeOf: (name: string) => string | undefined
 ): void {
-  const lines = new Map<string, { pipe: boolean; ends: UndergroundEnd[] }>()
-  for (const e of layout.entities) {
-    const type = typeOf(e.entity.name)
-    if (type !== 'underground-belt' && type !== 'pipe-to-ground') continue
-    const placed = undergroundEnd(e, type)
-    if (!placed) continue
-    const line = lines.get(placed.key)
-    if (line) line.ends.push(placed.end)
-    else lines.set(placed.key, { pipe: type === 'pipe-to-ground', ends: [placed.end] })
-  }
   const longest = db ? longestReach(db) : undefined
-  for (const { pipe, ends } of lines.values()) {
-    const type = pipe ? 'pipe-to-ground' : 'underground-belt'
-    pairLine(out, db, ends, { pipe, longest: longest?.get(type) })
-  }
+  for (const line of undergroundLines(layout, typeOf))
+    reportLine(out, db, line, longest?.get(line.type))
 }
 
 /** Longest `max_distance` per underground type, over every prototype in the DB. */
@@ -696,37 +649,29 @@ function longestReach(db: PrototypeDb): Map<string, number> {
 }
 
 /**
- * Pairs the ends of one line in order, nesting like brackets (an end placed
- * inside a pair takes the connection, as in game); reports the rest. A pair
- * beyond its reach is `too-far` when a longer tier of the type could bridge
- * it, else both ends count as unpaired.
+ * Reports the unpaired ends of one line and the pairs beyond their reach. A
+ * pair beyond its reach is `too-far` when a longer tier of the type could
+ * bridge it, else both ends count as unpaired.
  */
-function pairLine(
+function reportLine(
   out: Warnings,
   db: PrototypeDb | null,
-  ends: UndergroundEnd[],
-  { pipe, longest }: { pipe: boolean; longest: number | undefined }
+  line: UndergroundLine,
+  longest: number | undefined
 ): void {
-  ends.sort((a, b) => a.t - b.t)
-  const name = ends[0]!.e.entity.name
+  const { name } = line
   const max = db?.entities[name]?.stats?.maxDistance
-  const open: UndergroundEnd[] = []
-  const unpaired = (end: UndergroundEnd): void =>
+  const unpaired = (e: EntityLayout): void =>
     out.add(
-      { code: 'underground-unpaired', severity: pipe ? 'info' : 'warning', kind: 'entity', name },
-      [end.e.index]
+      {
+        code: 'underground-unpaired',
+        severity: line.type === 'pipe-to-ground' ? 'info' : 'warning',
+        kind: 'entity',
+        name
+      },
+      [e.index]
     )
-  for (const end of ends) {
-    if (end.opener) {
-      open.push(end)
-      continue
-    }
-    const start = open.pop()
-    if (!start) {
-      unpaired(end)
-      continue
-    }
-    const distance = end.t - start.t
+  for (const { start, end, distance } of line.pairs) {
     if (max === undefined || distance <= max + 1e-6) continue
     if (longest !== undefined && distance > longest + 1e-6) {
       unpaired(start)
@@ -741,11 +686,11 @@ function pairLine(
           value: distance,
           limit: max
         },
-        [start.e.index, end.e.index],
+        [start.index, end.index],
         1
       )
   }
-  for (const end of open) unpaired(end)
+  for (const e of line.unpaired) unpaired(e)
 }
 
 function checkDanglingBelts(out: Warnings, db: PrototypeDb, layout: BlueprintLayout): void {

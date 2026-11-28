@@ -207,10 +207,21 @@ const clampProductivity = (effects: Effects | undefined, max: number): number =>
 const qualityOf = (q: string | undefined): string | undefined =>
   q && q !== 'normal' ? q : undefined
 
+/** Items per second one machine takes in and puts out (fluids left out), for inserter checks. */
+export interface ItemRates {
+  input: number
+  output: number
+}
+
+/**
+ * `onRate`, when given, receives the item rates of every machine with a rate,
+ * by layout index (used by the logistics report).
+ */
 export function production(
   db: PrototypeDb,
   layout: BlueprintLayout,
-  settings: ProductionSettings
+  settings: ProductionSettings,
+  onRate?: (index: number, rates: ItemRates) => void
 ): ProductionReport {
   const effects = entityEffects(db, layout)
   const machines = new Map<string, MachineRow>()
@@ -229,6 +240,7 @@ export function production(
     const { rate } = resolved
     addMachine(machines, rate, e.index)
     flows.add(rate, e.index)
+    onRate?.(e.index, itemRates(rate))
     if (rate.row.recipe) surface.check(db.recipes[rate.row.recipe]!, rate.row.recipe, e.index)
   }
 
@@ -386,6 +398,15 @@ function rateOf(
       ...(what.itemQuality ? { itemQuality: what.itemQuality } : {})
     }
   }
+}
+
+function itemRates(rate: MachineRate): ItemRates {
+  let input = 0
+  let output = 0
+  for (const i of rate.inputs) if (i.type === 'item') input += rate.cycles * i.amount
+  for (const o of rate.outputs)
+    if (o.type === 'item') output += rate.cycles * productAmount(o, rate.productivity)
+  return { input, output }
 }
 
 function addMachine(machines: Map<string, MachineRow>, rate: MachineRate, index: number): void {
