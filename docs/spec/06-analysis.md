@@ -169,6 +169,18 @@ Compare two blueprints (two documents, or the current state against the imported
 
 The agent uses the diff to present proposed changes (see [07](07-agent-acp.md)).
 
+**Implemented in M4 PR 7** (`src/core/analysis/diff.ts`; `compare()` in `analysis/index.ts` runs in the analysis worker):
+
+- **Direction:** `before` is the blueprint picked in the Compare section, `after` the one on the canvas, so "added" means present on the canvas and not in the other one.
+- **Alignment:** blueprint positions are relative to the blueprint's centre (unless it uses absolute snapping), so one added entity at an edge shifts every other position, and a blueprint with absolute snapping has unrelated coordinates altogether (the corpus pair is 70 tiles east and 450 north apart). The diff first finds the offset that lines up the most entities by name and position: candidates are the most frequent shifts between same-name entities (rarest names first, at most 20,000 pairs, the 8 most frequent shifts), plus no shift; ties keep the smaller shift. The UI shows a non-zero offset as "Aligned by".
+- **Matching** at each (shifted) position, in three passes: identical entities, then the same name, then the same prototype type (an upgrade, such as stack inserter → bulk inserter, or assembling machine 2 → 3). Unmatched entities are added or removed. Different types at one position are a removal plus an addition. Without game data the type comes from the built-in size table.
+- **Changed** lists the top-level entity keys that differ (`entity_number` and `position` excluded; values compared as JSON, ignoring key order), plus `wires` when a wire to the entity was added or removed. Wires are compared through the matched entities, so renumbering is not a change; a wire to a removed entity counts as removed.
+- **Tiles** are compared by shifted position (added, removed, changed name). **Blueprint keys** that differ are listed too, except `item`, `version` (changes with every game update), `entities`, `tiles` and `wires`.
+- **Deltas** come from analysing both blueprints with the same settings: the bill of materials per item (works without game data), electric peak, drain and generation, and the net rate of every flow (with game data). Values within 10⁻⁶ relative count as equal.
+- **UI:** the Compare report is the last section of the Analysis tab (04 § Side panel). Its picker lists every blueprint in every open document (book entries as `Book › label`), except the one on the canvas. The choice stays while the user moves through a book, so each entry can be compared with the same blueprint. Added and changed rows select their entities; removed rows have nothing to select. The canvas overlay (04 § Overlays) has its own checkbox.
+- **Measured:** about 70 ms for the diff of the 16,937-entity Step 7 with a shifted copy, 110–140 ms with both analyses (no game data).
+- **Not done:** comparing with the imported original (needs M5 editing; `source.originalString` is kept for it), rows for removed entities on the canvas (hover or select), diffs of `schedules` and `stock_connections` beyond the blueprint-key list, and a side-by-side view.
+
 ## Data used
 
 Everything comes from the PrototypeDb (03). If no DB is loaded, only Inventory and the structural checks (overlap via the built-in size table, unpaired undergrounds) run. Rate-based reports show "requires game data".

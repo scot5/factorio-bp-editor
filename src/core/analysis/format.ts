@@ -48,3 +48,9 @@ export function formatRate(perSecond: number, unit: TimeUnit): string {
   }
   return `${formatSi(value, '').replace(' ', '')}${suffix}`
 }
+
+/** Sort comparator: highest count first, then by name. */
+export const byCountThenName =
+  <T extends { count: number }>(name: (r: T) => string) =>
+  (a: T, b: T): number =>
+    b.count - a.count || name(a).localeCompare(name(b))

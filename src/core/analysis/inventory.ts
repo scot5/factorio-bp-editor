@@ -1,6 +1,7 @@
 import type { Blueprint } from '../model/schema'
 import type { BlueprintLayout } from '../model/layout'
 import type { ItemCount, PrototypeDb } from '../prototypes'
+import { byCountThenName } from './format'
 
 /**
  * Inventory report: entity and tile counts, the bill of materials and the
@@ -73,11 +74,6 @@ function placeResultIndex(db: PrototypeDb): Map<string, string> {
 }
 
 const keyOf = (name: string, quality: string | undefined): string => `${name}\u0000${quality ?? ''}`
-
-const byCountThenName =
-  <T extends { count: number }>(name: (r: T) => string) =>
-  (a: T, b: T) =>
-    b.count - a.count || name(a).localeCompare(name(b))
 
 /** Number of items an insert plan asks for. */
 function planCount(items: unknown): number {

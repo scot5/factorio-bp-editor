@@ -4,7 +4,7 @@ import type { Position } from '@core/geometry'
 import { getNode, layoutBlueprint, type Blueprint } from '@core/model'
 import { wireSegments } from '@core/sprites'
 import { BlueprintCanvas, type CanvasHover } from './canvas/BlueprintCanvas'
-import type { IconSource } from './canvas/scene'
+import type { DiffOverlay, IconSource } from './canvas/scene'
 import { spriteResolverFor, spriteSourceFor } from './canvas/sprite-source'
 import { GameDataStatus } from './components/GameDataStatus'
 import { Icon } from './components/Icon'
@@ -18,6 +18,7 @@ import { BookTree } from './panels/BookTree'
 import { Inspector } from './panels/Inspector'
 import { useAnalysis } from './store/analysis'
 import { useAssets } from './store/assets'
+import { useDiff } from './store/diff'
 import { useActiveDocument, useDocuments } from './store/documents'
 
 const DIRECTIONS = [
@@ -87,6 +88,36 @@ export function App(): React.JSX.Element {
   const blueprint = (payload as Blueprint | undefined) ?? null
   useEffect(() => useAnalysis.getState().run(blueprint, db), [blueprint, db])
   const analysedBlueprint = useAnalysis((s) => s.blueprint)
+
+  // Compare: the blueprint on the canvas against another open blueprint (06 § 7).
+  const diffTarget = useDiff((s) => s.target)
+  const analysisSettings = useAnalysis((s) => s.settings)
+  const before = useMemo(() => {
+    if (!diffTarget || !doc) return null
+    if (diffTarget.docId === doc.id && diffTarget.path.join('/') === doc.activePath.join('/'))
+      return null
+    const other = documents.find((d) => d.id === diffTarget.docId)
+    const target = other ? getNode(other.envelope, diffTarget.path) : undefined
+    return target?.kind === 'blueprint' ? (target.payload as Blueprint) : null
+  }, [diffTarget, doc, documents])
+  useEffect(
+    () => useDiff.getState().run(before, blueprint, db, analysisSettings),
+    [before, blueprint, db, analysisSettings]
+  )
+  const diffReport = useDiff((s) => s.report)
+  const diffAfter = useDiff((s) => s.after)
+  const diffOverlayOn = useDiff((s) => s.overlay)
+  const diffOverlay = useMemo<DiffOverlay | null>(
+    () =>
+      before && diffOverlayOn && diffReport && blueprint && diffAfter === blueprint
+        ? {
+            added: diffReport.addedIndexes,
+            changed: diffReport.changedIndexes,
+            removed: diffReport.removedBoxes
+          }
+        : null,
+    [before, diffOverlayOn, diffReport, blueprint, diffAfter]
+  )
 
   const doImport = (text: string, fileName?: string): void => {
     const result = useDocuments.getState().importString(text, fileName)
@@ -224,6 +255,7 @@ export function App(): React.JSX.Element {
             spriteSource={spriteSource}
             wires={wires}
             wireHighlight={wireHighlight}
+            diff={diffOverlay}
             onSelect={select}
             onHover={setHover}
             onCursor={setCursor}

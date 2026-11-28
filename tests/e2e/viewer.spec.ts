@@ -2,7 +2,10 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { launchApp } from './launch'
-import { decode, encode } from '../../src/core/codec'
+import { compare } from '../../src/core/analysis'
+import { decode, encode, rootPayload } from '../../src/core/codec'
+import type { Blueprint } from '../../src/core/model'
+import { richTextToPlain } from '../../src/core/richtext'
 
 /** M2 viewer end to end (plan task 2.10). */
 
@@ -184,6 +187,41 @@ test('lists circuit networks and settings; a network row highlights its wires', 
   await expect(canvas.locator('canvas')).toHaveAttribute('data-wire-highlight', '1')
   await canvas.press('Escape')
   await expect(canvas.locator('canvas')).toHaveAttribute('data-wire-highlight', '0')
+  await page.getByTestId('tab-inspector').click()
+})
+
+test('compares two open blueprints and draws the diff on the canvas', async () => {
+  const beforeText = corpus('provider_station.txt')
+  const afterText = corpus('station_provider_with_quality.txt')
+  const expected = compare(
+    rootPayload(decode(beforeText)) as Blueprint,
+    rootPayload(decode(afterText)) as Blueprint,
+    null
+  ).counts
+  const beforeLabel = richTextToPlain(String(rootPayload(decode(beforeText))['label']))
+  await importViaDialog(beforeText)
+  await importViaDialog(afterText)
+  await page.getByTestId('tab-analysis').click()
+  await expect(page.getByTestId('section-diff-toggle')).toContainText('not comparing')
+
+  await page.getByTestId('diff-target').selectOption({ label: beforeLabel })
+  await expect(page.getByTestId('diff-changed-count')).toHaveText(String(expected.changed))
+  await expect(page.getByTestId('diff-added-count')).toHaveText('0')
+  await expect(page.getByTestId('section-diff-toggle')).toContainText(`~${expected.changed}`)
+  const canvas = page.getByTestId('blueprint-canvas').locator('canvas')
+  await expect(canvas).toHaveAttribute('data-diff', `0,${expected.changed},0`)
+
+  // A changed row selects its entities on the canvas.
+  await page.getByTestId('diff-changed-row').first().click()
+  await expect(page.getByTestId('selection-count')).toBeVisible()
+
+  await page.getByTestId('diff-overlay').uncheck()
+  await expect(canvas).toHaveAttribute('data-diff', '')
+  await page.getByTestId('diff-overlay').check()
+  await expect(canvas).toHaveAttribute('data-diff', `0,${expected.changed},0`)
+
+  await page.getByTestId('diff-target').selectOption('')
+  await expect(canvas).toHaveAttribute('data-diff', '')
   await page.getByTestId('tab-inspector').click()
 })
 

@@ -1,6 +1,7 @@
 import { layoutBlueprint, type Blueprint } from '../model'
 import { dbPrototypeLookup, fallbackPrototypeLookup, type PrototypeDb } from '../prototypes'
 import { circuits, type CircuitReport } from './circuits'
+import { diffBlueprints, diffReport, type DiffReport } from './diff'
 import type { TimeUnit } from './format'
 import { inventory, type InventoryReport } from './inventory'
 import { logistics, type LogisticsReport, type ResearchBonuses } from './logistics'
@@ -9,6 +10,7 @@ import { production, surfaceProperties, type ItemRates, type ProductionReport } 
 import { validation, type ValidationReport } from './validation'
 
 export * from './circuits'
+export * from './diff'
 export * from './effects'
 export * from './format'
 export * from './inventory'
@@ -97,4 +99,26 @@ export function analyse(
     validation: validation(db, layout, { power: powerReport, production: productionReport }),
     circuits: circuits(layout, lookup)
   }
+}
+
+/**
+ * Compares `before` with `after` (the blueprint on the canvas): the entity,
+ * wire and tile diff plus material, power and production deltas (06 § 7).
+ */
+export function compare(
+  before: Blueprint,
+  after: Blueprint,
+  db: PrototypeDb | null,
+  settings: AnalysisSettings = DEFAULT_ANALYSIS_SETTINGS
+): DiffReport {
+  const lookup = db ? dbPrototypeLookup(db) : fallbackPrototypeLookup
+  const diff = diffBlueprints(before, after, lookup)
+  return diffReport(
+    before,
+    after,
+    diff,
+    analyse(before, db, settings),
+    analyse(after, db, settings),
+    lookup
+  )
 }

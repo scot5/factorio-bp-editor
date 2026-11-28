@@ -25,6 +25,7 @@ import {
   BOX_SELECT_COLOR,
   CATEGORY_COLORS,
   CHUNK_COLOR,
+  DIFF_COLORS,
   GRID_COLOR,
   HOVER_COLOR,
   SELECTION_COLOR,
@@ -77,6 +78,13 @@ const PX_PER_TILE_AT_SCALE_1 = 32 // Factorio sprites: 32 px per tile at scale 1
 const SHADOW_ALPHA = 0.5
 
 /** Icon URL for an entity, or null when it has none. */
+/** What the diff overlay shows: entity indexes in the current layout, and removed footprints. */
+export interface DiffOverlay {
+  added: readonly number[]
+  changed: readonly number[]
+  removed: readonly Box[]
+}
+
 export type IconSource = (entity: EntityLayout) => string | null
 
 /** Game graphics for a blueprint (null when there is no game data). */
@@ -135,6 +143,7 @@ export class Scene {
   /** Per-frame footprints and arrows of visible entities not drawn as sprites. */
   private readonly detail = new Graphics()
   private readonly detailArrows = new Graphics()
+  private readonly diffLayer = new Graphics()
   private readonly selectionLayer = new Graphics()
   private readonly hoverLayer = new Graphics()
   private readonly boxSelect = new Graphics()
@@ -152,6 +161,7 @@ export class Scene {
   private index = new SpatialIndex<EntityLayout>()
   private camera: Camera = { x: 0, y: 0, scale: 32 }
   private selection = new Set<number>()
+  private diff: DiffOverlay | null = null
   private hover: number | null = null
   private frame = 0
   private ready = false
@@ -182,6 +192,7 @@ export class Scene {
       this.icons,
       this.arrows,
       this.detailArrows,
+      this.diffLayer,
       this.selectionLayer,
       this.wireHighlightLayer,
       this.hoverLayer,
@@ -222,6 +233,7 @@ export class Scene {
       this.tileIndex.insert({ left: t.x, top: t.y, right: t.x + 1, bottom: t.y + 1 }, t)
     this.drawTiles()
     this.drawEntities()
+    this.drawDiff()
     this.drawSelection()
     this.drawHover()
     this.invalidate()
@@ -260,6 +272,13 @@ export class Scene {
 
   setCamera(camera: Camera): void {
     this.camera = camera
+    this.invalidate()
+  }
+
+  /** Diff overlay over the current layout, or null to hide it. */
+  setDiff(diff: DiffOverlay | null): void {
+    this.diff = diff
+    this.drawDiff()
     this.invalidate()
   }
 
@@ -596,6 +615,36 @@ export class Scene {
     }
     for (const [category, list] of byCategory) fillFootprints(g, category, list)
     strokeArrows(arrows, withArrows)
+  }
+
+  /**
+   * Added and changed entities tinted green and yellow, removed ones as red
+   * outlines where they were, at every zoom. Counts go on the canvas as
+   * `data-diff` ("added,changed,removed") for tests.
+   */
+  private drawDiff(): void {
+    const g = this.diffLayer
+    g.clear()
+    const diff = this.diff
+    const entities = this.layout?.entities ?? []
+    const boxes = (indexes: readonly number[]): Box[] =>
+      indexes.flatMap((i) => (entities[i] ? [entities[i].box] : []))
+    const draw = (list: readonly Box[], color: number, fill: number): void => {
+      if (list.length === 0) return
+      for (const b of list) g.rect(b.left, b.top, b.right - b.left, b.bottom - b.top)
+      g.fill({ color, alpha: fill })
+      g.stroke({ color, width: 0.08, alignment: 1 }) // width in tiles
+    }
+    if (diff) {
+      draw(diff.removed, DIFF_COLORS.removed, 0.15)
+      draw(boxes(diff.changed), DIFF_COLORS.changed, 0.3)
+      draw(boxes(diff.added), DIFF_COLORS.added, 0.3)
+    }
+    if (this.ready) {
+      this.app.canvas.dataset['diff'] = diff
+        ? `${diff.added.length},${diff.changed.length},${diff.removed.length}`
+        : ''
+    }
   }
 
   private drawSelection(): void {
