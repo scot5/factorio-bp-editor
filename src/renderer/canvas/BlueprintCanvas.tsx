@@ -229,15 +229,15 @@ export function BlueprintCanvas(props: Props): React.JSX.Element {
     if (!scene || !d || d.kind === 'pan') return
     const p = local(event)
     const world = screenToWorld(cameraRef.current, p.x, p.y)
-    if (d.kind === 'move' || d.kind === 'pending-move') {
-      if (d.kind === 'move') {
-        scene.setMoveOffset(null)
-        if (d.offset.x !== 0 || d.offset.y !== 0) propsRef.current.onMove(d.offset.x, d.offset.y)
-      } else {
-        // A click on a selected entity selects just that one.
-        const hit = scene.hitTest(world)
-        propsRef.current.onSelect(hit ? [hit.index] : [], 'replace')
-      }
+    if (d.kind === 'move') {
+      scene.setMoveOffset(null)
+      if (d.offset.x !== 0 || d.offset.y !== 0) propsRef.current.onMove(d.offset.x, d.offset.y)
+      return
+    }
+    if (d.kind === 'pending-move') {
+      // A click on a selected entity selects just that one.
+      const hit = scene.hitTest(world)
+      propsRef.current.onSelect(hit ? [hit.index] : [], 'replace')
       return
     }
     if (d.kind === 'box') {

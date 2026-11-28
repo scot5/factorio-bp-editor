@@ -141,25 +141,26 @@ export const mirrorEntities = defineCommand<MirrorArgs>({
       box,
       list.some((t) => isRailGrid(t.info))
     )
-    const horizontal = args.axis === 'horizontal'
-    for (const { entity, info } of list) {
-      setPosition(entity, mirrorPosition(entity.position, pivot, args.axis))
-      if (typeof entity.orientation === 'number') {
-        entity.orientation = wrap((horizontal ? 1 : 1.5) - entity.orientation)
-        continue
-      }
-      if (canRotate(info)) {
-        const d = mirrorDirection(direction(entity), args.axis) + mirrorOffset(info?.type)
-        setDirection(entity, normalizeDirection(info?.type, d))
-      }
-      if (canMirror(info)) {
-        if (entity.mirror === true) delete entity.mirror
-        else entity.mirror = true
-      }
-      if (info?.type === 'splitter' || info?.type === 'lane-splitter') swapPriorities(entity)
-    }
+    for (const target of list) mirrorEntity(target, pivot, args.axis)
   }
 })
+
+function mirrorEntity({ entity, info }: Target, pivot: Position, axis: MirrorAxis): void {
+  setPosition(entity, mirrorPosition(entity.position, pivot, axis))
+  if (typeof entity.orientation === 'number') {
+    entity.orientation = wrap((axis === 'horizontal' ? 1 : 1.5) - entity.orientation)
+    return
+  }
+  if (canRotate(info)) {
+    const d = mirrorDirection(direction(entity), axis) + mirrorOffset(info?.type)
+    setDirection(entity, normalizeDirection(info?.type, d))
+  }
+  if (canMirror(info)) {
+    if (entity.mirror === true) delete entity.mirror
+    else entity.mirror = true
+  }
+  if (info?.type === 'splitter' || info?.type === 'lane-splitter') swapPriorities(entity)
+}
 
 export const deleteEntities = defineCommand<EntitiesArgs>({
   name: 'deleteEntities',
