@@ -365,7 +365,7 @@ function maskLayers(mask: unknown): { layers: string[]; notSelf: boolean } | und
   const layers = m['layers'] && typeof m['layers'] === 'object' ? Object.keys(m['layers']) : []
   return {
     layers:
-      m['colliding_with_tiles_only'] === true ? [] : layers.sort((a, b) => a.localeCompare(b)),
+      m['colliding_with_tiles_only'] === true ? [] : layers.toSorted((a, b) => a.localeCompare(b)),
     notSelf: m['not_colliding_with_itself'] === true
   }
 }

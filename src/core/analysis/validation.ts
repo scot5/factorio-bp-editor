@@ -251,18 +251,20 @@ function references(entity: BlueprintEntity): Reference[] {
   return out
 }
 
+function checkReference(out: Warnings, db: PrototypeDb, r: Reference, index: number): void {
+  const { ref, quality, detail } = r
+  if (!knownPrototype(db, ref))
+    out.add(
+      { code: 'unknown-prototype', severity: 'error', ...ref, ...(detail ? { detail } : {}) },
+      [index]
+    )
+  if (typeof quality === 'string' && !db.qualities[quality])
+    out.add({ code: 'quality-unavailable', severity: 'warning', ...ref, quality }, [index])
+}
+
 function checkUnknown(out: Warnings, db: PrototypeDb, layout: BlueprintLayout): void {
-  for (const { entity, index } of layout.entities) {
-    for (const { ref, quality, detail } of references(entity)) {
-      if (!knownPrototype(db, ref))
-        out.add(
-          { code: 'unknown-prototype', severity: 'error', ...ref, ...(detail ? { detail } : {}) },
-          [index]
-        )
-      if (typeof quality === 'string' && !db.qualities[quality])
-        out.add({ code: 'quality-unavailable', severity: 'warning', ...ref, quality }, [index])
-    }
-  }
+  for (const { entity, index } of layout.entities)
+    for (const r of references(entity)) checkReference(out, db, r, index)
   const tiles = new Map<string, number>()
   for (const t of layout.tiles)
     if (!db.tiles.includes(t.name)) tiles.set(t.name, (tiles.get(t.name) ?? 0) + 1)
@@ -516,7 +518,7 @@ function checkModule(
   }: {
     proto: EntityProto
     e: EntityLayout
-    recipe?: { name: string; recipe: RecipeProto } | undefined
+    recipe: { name: string; recipe: RecipeProto } | undefined
   }
 ): void {
   const module = db.items[m.item]?.module
