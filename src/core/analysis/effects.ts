@@ -40,7 +40,7 @@ const RECEIVER_TYPES: ReadonlySet<string> = new Set([
 ])
 
 /** Whether a positive value of the effect is good (quality improves only good values). */
-const isBeneficial = (effect: ModuleEffect, value: number): boolean =>
+export const isBeneficial = (effect: ModuleEffect, value: number): boolean =>
   effect === 'consumption' || effect === 'pollution' ? value < 0 : value > 0
 
 export interface InstalledModule {

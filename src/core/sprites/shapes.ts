@@ -192,6 +192,17 @@ function acceptsFrom({ layout: n, proto }: Neighbour, dir: number): boolean {
   }
 }
 
+/**
+ * Whether the tile in front of a (1×1) belt-like entity holds something that
+ * takes its items: a belt not facing it, an underground or linked belt, a
+ * splitter or an input loader. Used by validation (`dangling-belt`).
+ */
+export function feedsForward(e: EntityLayout, at: TileQuery): boolean {
+  const f = facing4(e)
+  const front = neighbourTile(tileOf(e), f)
+  return at(front[0], front[1]).some((n) => n.layout !== e && acceptsFrom(n, f))
+}
+
 function feeds(at: TileQuery, tile: [number, number], fromDir: number): boolean {
   const source = neighbourTile(tile, fromDir)
   return at(source[0], source[1]).some((n) => outputsInto(n, tile))

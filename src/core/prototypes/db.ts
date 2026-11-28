@@ -16,6 +16,7 @@ import {
   type EntityStats,
   type ItemCount,
   type ItemStats,
+  type ModuleEffect,
   type StatsContext
 } from './stats'
 
@@ -26,7 +27,7 @@ import {
  * Bump DB_FORMAT_VERSION whenever the shape or contents change, so cached
  * databases are rebuilt.
  */
-export const DB_FORMAT_VERSION = 9
+export const DB_FORMAT_VERSION = 10
 
 /** Types whose prototype `color` tints their runtime-tint masks. */
 const TINTED_TYPES: ReadonlySet<string> = new Set([
@@ -63,6 +64,14 @@ export interface EntityProto {
   wirePoints?: EntityWirePoints
   /** Numbers for analysis: crafting, modules, energy, belts, inserters, poles (format 7+). */
   stats?: EntityStats
+  /**
+   * Collision mask layers, sorted: the prototype's `collision_mask`, else the
+   * type's entry in `default_collision_masks`. Empty when it collides with tiles
+   * only. Omitted when neither is known (format 10+).
+   */
+  collisionLayers?: string[]
+  /** `collision_mask.not_colliding_with_itself` (format 10+). */
+  notCollidingWithItself?: true
 }
 
 export interface ItemProto extends ItemStats {
@@ -112,6 +121,10 @@ export interface RecipeProto {
   surfaceConditions?: SurfaceCondition[]
   /** Hidden recipes (recycling, parameters, …; format 9+). */
   hidden?: true
+  /** Module effects the recipe forbids (`allow_consumption`, `allow_speed`, `allow_pollution`, `allow_quality` false; format 10+). */
+  disallowedEffects?: ModuleEffect[]
+  /** `allowed_module_categories`, when the recipe limits them (format 10+). */
+  allowedModuleCategories?: string[]
 }
 
 /** A minable resource (format 9+). */
@@ -135,6 +148,8 @@ export interface QualityProto {
   next?: string
   /** Explicit `*_multiplier` fields without the suffix (format 7+); see `qualityMultiplier`. */
   multipliers?: Record<string, number>
+  /** Explicit `electric_pole_wire_reach_bonus` (format 10+); see `poleWireReachBonus`. */
+  wireReachBonus?: number
 }
 
 /** Solar power of a planet (format 8+). */
@@ -318,7 +333,53 @@ function recipe(proto: Record<string, unknown>): RecipeProto {
     ...(proto['allow_productivity'] === true ? { allowProductivity: true } : {}),
     ...(typeof max === 'number' && max !== 3 ? { maximumProductivity: max } : {}),
     ...(conditions ? { surfaceConditions: conditions } : {}),
-    ...(proto['hidden'] === true || proto['parameter'] === true ? { hidden: true } : {})
+    ...(proto['hidden'] === true || proto['parameter'] === true ? { hidden: true } : {}),
+    ...recipeModuleLimits(proto)
+  }
+}
+
+const RECIPE_ALLOW_FLAGS: readonly [string, ModuleEffect][] = [
+  ['allow_consumption', 'consumption'],
+  ['allow_speed', 'speed'],
+  ['allow_pollution', 'pollution'],
+  ['allow_quality', 'quality']
+]
+
+function recipeModuleLimits(
+  proto: Record<string, unknown>
+): Pick<RecipeProto, 'disallowedEffects' | 'allowedModuleCategories'> {
+  const disallowed = RECIPE_ALLOW_FLAGS.filter(([flag]) => proto[flag] === false).map(([, e]) => e)
+  const categories = proto['allowed_module_categories']
+  return {
+    ...(disallowed.length ? { disallowedEffects: disallowed } : {}),
+    ...(Array.isArray(categories)
+      ? { allowedModuleCategories: categories.filter((c): c is string => typeof c === 'string') }
+      : {})
+  }
+}
+
+/** A collision mask's layer names, sorted; `[]` when it collides with tiles only. */
+function maskLayers(mask: unknown): { layers: string[]; notSelf: boolean } | undefined {
+  if (!mask || typeof mask !== 'object') return undefined
+  const m = mask as Record<string, unknown>
+  const layers = m['layers'] && typeof m['layers'] === 'object' ? Object.keys(m['layers']) : []
+  return {
+    layers:
+      m['colliding_with_tiles_only'] === true ? [] : layers.sort((a, b) => a.localeCompare(b)),
+    notSelf: m['not_colliding_with_itself'] === true
+  }
+}
+
+function collisionFields(
+  type: string,
+  proto: Record<string, unknown>,
+  defaults: Record<string, unknown> | undefined
+): Pick<EntityProto, 'collisionLayers' | 'notCollidingWithItself'> {
+  const mask = maskLayers(proto['collision_mask'] ?? defaults?.[type])
+  if (!mask) return {}
+  return {
+    collisionLayers: mask.layers,
+    ...(mask.notSelf ? { notCollidingWithItself: true } : {})
   }
 }
 
@@ -391,6 +452,8 @@ export function buildPrototypeDb(
 ): PrototypeDb {
   const entities: Record<string, EntityProto> = {}
   const context: StatsContext = { fluid: (name) => fluidHeat(raw['fluid']?.[name]) }
+  const defaultMasks = raw['utility-constants']?.['default']?.['default_collision_masks'] as
+    Record<string, unknown> | undefined
   for (const [type, prototypes] of Object.entries(raw)) {
     if (NOT_BLUEPRINTABLE_TYPES.has(type)) continue
     for (const proto of Object.values(prototypes)) {
@@ -417,7 +480,8 @@ export function buildPrototypeDb(
         ...(connections ? { connections } : {}),
         ...(tint ? { color: tint } : {}),
         ...(wirePoints ? { wirePoints } : {}),
-        ...(stats ? { stats } : {})
+        ...(stats ? { stats } : {}),
+        ...collisionFields(type, proto, defaultMasks)
       }
     }
   }
@@ -451,7 +515,10 @@ export function buildPrototypeDb(
       level: typeof proto['level'] === 'number' ? proto['level'] : 0,
       ...(color ? { color } : {}),
       ...(typeof proto['next'] === 'string' ? { next: proto['next'] } : {}),
-      ...(Object.keys(multipliers).length ? { multipliers } : {})
+      ...(Object.keys(multipliers).length ? { multipliers } : {}),
+      ...(typeof proto['electric_pole_wire_reach_bonus'] === 'number'
+        ? { wireReachBonus: proto['electric_pole_wire_reach_bonus'] }
+        : {})
     }
   }
 
@@ -596,6 +663,11 @@ function mainProduct(proto: Record<string, unknown>): RecipeIngredient | undefin
 }
 
 /** The display name of a prototype, or its internal name without game data or locale. */
+/** Extra wire reach of electric poles at a quality level (default 2 × level). */
+export function poleWireReachBonus(quality: QualityProto | undefined): number {
+  return quality?.wireReachBonus ?? 2 * (quality?.level ?? 0)
+}
+
 export function displayName(
   db: PrototypeDb | null | undefined,
   category: NameCategory,
