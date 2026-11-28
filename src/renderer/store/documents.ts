@@ -205,7 +205,10 @@ export const useDocuments = create<DocumentState>()(
       if (result.changed) {
         set((state) => {
           const target = state.documents.find((d) => d.id === doc.id)
-          if (target) applyEnvelope(target, result.envelope, result.history)
+          if (!target) return
+          const before = entityCount(target.envelope, target.activePath)
+          applyEnvelope(target, result.envelope, result.history)
+          keepSelection(state, before, entityCount(result.envelope, target.activePath))
         })
       }
       return { ok: true, warnings: result.warnings }
@@ -238,7 +241,9 @@ function step(
   useDocuments.setState((state) => {
     const target = state.documents.find((d) => d.id === doc.id)
     if (!target) return
+    const before = entityCount(target.envelope, target.activePath)
     applyEnvelope(target, result.envelope, result.history)
+    keepSelection(state, before, entityCount(result.envelope, target.activePath))
     const path = result.entry.activePath
     if (path.join('/') !== target.activePath.join('/') && getNode(result.envelope, path)) {
       target.activePath = [...path]
@@ -246,6 +251,25 @@ function step(
       state.wireHighlight = []
     }
   })
+}
+
+/** Entities in the blueprint at `path`, or -1 when it is not a blueprint. */
+function entityCount(envelope: BlueprintEnvelope, path: readonly number[]): number {
+  const node = getNode(envelope, path)
+  if (node?.kind !== 'blueprint') return -1
+  const entities = node.payload['entities']
+  return Array.isArray(entities) ? entities.length : 0
+}
+
+/**
+ * The selection holds entity indexes. Moves, turns and mirrors keep them; an
+ * edit that adds or removes entities (delete, or undoing one) shifts them, so
+ * the selection is cleared then.
+ */
+function keepSelection(state: Draft<DocumentState>, before: number, after: number): void {
+  if (before === after) return
+  state.selection = []
+  state.wireHighlight = []
 }
 
 /** Stores an edited envelope and refreshes what is derived from it. */

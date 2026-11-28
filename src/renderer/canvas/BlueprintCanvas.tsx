@@ -16,6 +16,10 @@ interface Props {
   /** Changes when a different blueprint is shown; the view is re-fitted. */
   viewKey: string
   onSelect(indexes: number[], mode: 'replace' | 'add' | 'toggle'): void
+  /** Dragging the selection: whole-tile offset, a multiple of `moveStep`. */
+  onMove(dx: number, dy: number): void
+  /** Tiles per move step (2 with rail-grid entities selected). */
+  moveStep: number
   onHover(hover: CanvasHover | null): void
   onCursor(tile: Position | null): void
   onZoom(scale: number): void
@@ -33,13 +37,21 @@ interface Props {
   diff: DiffOverlay | null
 }
 
+interface MoveDrag {
+  start: Position
+  startWorld: Position
+  offset: Position
+}
+
 const DRAG_THRESHOLD = 4 // px before a press becomes a drag
 const PAN_STEP = 0.15 // fraction of the view per arrow key press
 
 /**
  * Canvas viewport: left-drag box select (Shift adds, Ctrl toggles), click
- * select, middle/right-drag or Space+drag pan, wheel zoom at cursor, arrow keys
- * pan, F fits. See docs/spec/04-visualization.md § Interaction (view mode).
+ * select, dragging a selected entity moves the selection, middle/right-drag or
+ * Space+drag pan, wheel zoom at cursor, arrow keys pan, F fits (when nothing is
+ * selected; F mirrors a selection). See docs/spec/04-visualization.md
+ * § Interaction and 05 § Tools.
  */
 export function BlueprintCanvas(props: Props): React.JSX.Element {
   const {
@@ -134,6 +146,8 @@ export function BlueprintCanvas(props: Props): React.JSX.Element {
         mode: 'replace' | 'add' | 'toggle'
       }
     | { kind: 'pan'; last: Position }
+    | (MoveDrag & { kind: 'pending-move' })
+    | (MoveDrag & { kind: 'move' })
     | null
   >(null)
   const spaceDown = useRef(false)
@@ -153,6 +167,12 @@ export function BlueprintCanvas(props: Props): React.JSX.Element {
     }
     if (event.button !== 0) return
     const mode = event.shiftKey ? 'add' : event.ctrlKey || event.metaKey ? 'toggle' : 'replace'
+    const startWorld = screenToWorld(cameraRef.current, p.x, p.y)
+    const hit = sceneRef.current?.hitTest(startWorld)
+    if (mode === 'replace' && hit && propsRef.current.selection.includes(hit.index)) {
+      drag.current = { kind: 'pending-move', start: p, startWorld, offset: { x: 0, y: 0 } }
+      return
+    }
     drag.current = {
       kind: 'pending',
       start: p,
@@ -175,6 +195,21 @@ export function BlueprintCanvas(props: Props): React.JSX.Element {
       d.last = p
       return
     }
+    if (d?.kind === 'pending-move' || d?.kind === 'move') {
+      if (
+        d.kind === 'pending-move' &&
+        Math.hypot(p.x - d.start.x, p.y - d.start.y) <= DRAG_THRESHOLD
+      )
+        return
+      d.kind = 'move'
+      const step = propsRef.current.moveStep
+      const snap = (v: number): number => Math.round(v / step) * step + 0
+      d.offset = { x: snap(world.x - d.startWorld.x), y: snap(world.y - d.startWorld.y) }
+      scene.setMoveOffset(d.offset)
+      scene.setHover(null)
+      propsRef.current.onHover(null)
+      return
+    }
     if (d && (d.kind === 'box' || Math.hypot(p.x - d.start.x, p.y - d.start.y) > DRAG_THRESHOLD)) {
       d.kind = 'box'
       scene.setBoxSelect(boxOf(d.startWorld, world))
@@ -194,6 +229,17 @@ export function BlueprintCanvas(props: Props): React.JSX.Element {
     if (!scene || !d || d.kind === 'pan') return
     const p = local(event)
     const world = screenToWorld(cameraRef.current, p.x, p.y)
+    if (d.kind === 'move') {
+      scene.setMoveOffset(null)
+      if (d.offset.x !== 0 || d.offset.y !== 0) propsRef.current.onMove(d.offset.x, d.offset.y)
+      return
+    }
+    if (d.kind === 'pending-move') {
+      // A click on a selected entity selects just that one.
+      const hit = scene.hitTest(world)
+      propsRef.current.onSelect(hit ? [hit.index] : [], 'replace')
+      return
+    }
     if (d.kind === 'box') {
       scene.setBoxSelect(null)
       const hits = scene.queryBox(boxOf(d.startWorld, world)).map((e) => e.index)
@@ -250,10 +296,16 @@ export function BlueprintCanvas(props: Props): React.JSX.Element {
         break
       case 'f':
       case 'F':
+        if (propsRef.current.selection.length > 0) return // mirrors the selection (App)
         fit()
         break
       case 'Escape':
-        propsRef.current.onSelect([], 'replace')
+        if (drag.current?.kind === 'move' || drag.current?.kind === 'pending-move') {
+          drag.current = null
+          scene.setMoveOffset(null)
+        } else {
+          propsRef.current.onSelect([], 'replace')
+        }
         break
       default:
         return

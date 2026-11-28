@@ -86,6 +86,7 @@ The renderer must stay smooth (≥ 50 fps pan/zoom) for blueprints with **20,000
 - Hover shows a tooltip: entity name, quality, recipe, position, direction.
 - Click selects. The inspector shows every property, including raw JSON (read-only in view mode).
 - Shift-click or drag-box selects several entities. The inspector shows a summary.
+- Dragging a selected entity moves the whole selection. The selection outline follows the pointer in whole tiles (2-tile steps when the selection holds rail-grid entities), and releasing commits one `moveEntities` step. Escape cancels the drag. Clicking a selected entity without dragging selects only that entity.
 - Clicking a row in the analysis panel (for example "12× electric-mining-drill") highlights those entities on the canvas. A circuit network row also highlights the network's wires.
 
 ## Rich text

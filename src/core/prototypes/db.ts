@@ -6,6 +6,7 @@ import { tileGraphics, type TileGraphics } from '../sprites/tiles'
 import type { GraphicsPart, ShapePictures } from '../sprites/types'
 import { entityConnections, type EntityConnections } from './connections'
 import { entityWirePoints, type EntityWirePoints } from './wires'
+import { transformTraits } from './transform'
 import { localise, type Locale, type NameCategory } from './locale'
 import {
   entityStats,
@@ -27,7 +28,7 @@ import {
  * Bump DB_FORMAT_VERSION whenever the shape or contents change, so cached
  * databases are rebuilt.
  */
-export const DB_FORMAT_VERSION = 11
+export const DB_FORMAT_VERSION = 12
 
 /** Types whose prototype `color` tints their runtime-tint masks. */
 const TINTED_TYPES: ReadonlySet<string> = new Set([
@@ -72,6 +73,10 @@ export interface EntityProto {
   collisionLayers?: string[]
   /** `collision_mask.not_colliding_with_itself` (format 10+). */
   notCollidingWithItself?: true
+  /** Rotating never turns it (format 12+; see prototypes/transform.ts). */
+  rotatable?: false
+  /** Mirroring sets its `mirror` flag (`use_mirroring`; format 12+). */
+  mirroring?: true
 }
 
 export interface ItemProto extends ItemStats {
@@ -481,7 +486,8 @@ export function buildPrototypeDb(
         ...(tint ? { color: tint } : {}),
         ...(wirePoints ? { wirePoints } : {}),
         ...(stats ? { stats } : {}),
-        ...collisionFields(type, proto, defaultMasks)
+        ...collisionFields(type, proto, defaultMasks),
+        ...transformTraits(type, proto, size)
       }
     }
   }

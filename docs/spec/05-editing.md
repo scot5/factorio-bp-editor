@@ -54,6 +54,26 @@ Implemented in `src/core/edit` (`command.ts`, `history.ts`, `invariants.ts`). Ev
 | `upgrade(selection, mapping)` | Bulk replace using an upgrade-planner-style mapping. |
 | `copy` / `cut` / `paste(at)` | Clipboard holds a sub-blueprint. Paste shows a ghost preview until the user confirms. |
 
+`moveEntities`, `rotateEntities`, `mirrorEntities` and `deleteEntities` are implemented (`src/core/edit/entities.ts`). They take `{ path, indexes, lookup }`: the blueprint's book path, indexes into its `entities` (the canvas selection uses indexes), and the prototype lookup for sizes and types (the PrototypeDb, or the fallback size table). An index that no longer exists rejects the edit.
+
+- **Move** rejects fractional offsets, and odd offsets when a rail-grid entity (rails, ramps, supports, train stops) is selected.
+- **Delete** also removes the wires that touch the deleted entities, drops them from `schedules[].locomotives` (a schedule with no locomotive left is removed), and removes their `stock_connections` entries and the `front` / `back` references to them. A list that ends up empty (including `entities`) is removed, as the game omits empty lists. `entity_number`s are not renumbered; that happens on export (§ Export).
+- After an edit that changes the number of entities (a delete, or undoing one), the store clears the selection, since it holds indexes. Moves, turns and mirrors keep it.
+
+### Rotate and mirror
+
+Implemented in `src/core/edit/entities.ts` and `src/core/prototypes/transform.ts`.
+
+- **Positions** turn or mirror around the selection's footprint box (`entityFootprint`, shared with the canvas layout). A quarter turn keeps tiles on the grid only when the pivot's coordinates are both whole or both half. When the box centre mixes the two, the pivot moves half a tile: clockwise along x (+½ when x is whole, −½ when x is half), anticlockwise along y (−½ when x is whole, +½ when x is half). With that rule, a clockwise turn followed by an anticlockwise one, and four turns the same way, return every entity to where it started. A mirror line through the box centre always keeps the grid.
+- **Rail grid:** with rails, ramps, supports or train stops selected, the pivot is a whole point with an even coordinate sum (rails lie on a 2×2 grid, and such a turn maps it onto itself), chosen so that anticlockwise undoes clockwise. A mirror line is whole; a half one moves to the even neighbour, so mirroring twice returns to the start.
+- **Directions** turn by 4 per quarter turn and mirror as `−d` (horizontal) or `8 − d` (vertical). Then the game's form is written: straight and half-diagonal rails (ground and elevated) and rail supports use 0–7, since a half turn is the same piece; 1.1 `legacy-straight-rail` folds N/S and E/W the same way but keeps its four diagonals. North is written by leaving `direction` out. Entities that cannot rotate (DB `rotatable: false`, or a `NON_ROTATABLE_TYPES` type without game data) keep their direction and only move.
+- **Mirror offsets,** confirmed against `elevated_rail_intersection.txt`, which is 4-fold symmetric. Turning it a quarter maps every rail, support and signal onto one of the same kind, and mirroring maps its rails and supports onto themselves (`tests/unit/edit-corpus.test.ts`). Curved rails (`a` and `b`, ground and elevated) and half-diagonal rails change hand, so their mirrored direction gets `+2`. Rail and chain signals move to the other side of the track and therefore guard the other way: `+8`. The same is assumed for train stops (they stand on the right of the track) and for `legacy-curved-rail` (`+2`, like 1.1's curves). These two are derived, not yet checked against the game.
+- **`mirror` flag:** toggled (written as `true` or left out) on entities whose prototype mirrors (DB `mirroring`, 03 § Rotate and mirror fields). A mirrored entity is flipped across its own facing axis, so a horizontal mirror also turns `d → −d`, and a vertical one is a horizontal one plus a half turn (`8 − d`), as for any other entity.
+- **Splitters** (and lane splitters) swap `input_priority` / `output_priority` between `left` and `right`.
+- **Rolling stock** (anything with an `orientation`) turns by `±0.25` and mirrors as `1 − o` (horizontal) or `0.5 − o` (vertical), mod 1. It gets no `direction`.
+- **Not handled yet:** blueprints the game refuses to flip (`allows_flipping`, runtime-only), and the power switch's left / right copper connectors on a mirror.
+- **Measured** on the 16,937-entity Step 7 of the rocket book: moving one entity 5 ms, moving all 107 ms, rotating all 160 ms, mirroring all 134 ms, deleting one 10 ms (undo 43 ms). A drag commits one move on release, so this is fine.
+
 ### Wire commands
 
 | Command | Notes |
@@ -88,6 +108,8 @@ The deconstruction and upgrade planners get form-based editors: filter lists and
 | `Q` | Pipette (pick the hovered entity's type into the place tool) |
 
 Shortcuts SHOULD follow the game's defaults wherever there is an equivalent.
+
+**Implemented so far (M5 plan step 2):** select (click, Shift / Ctrl, box; 04 § Interaction), drag to move, and `R` / `Shift+R`, `F` / `G` and `Delete` (also `Backspace`) on the selection, plus toolbar buttons for rotate, both mirrors and delete. `F` fits the view when nothing is selected. The selection shortcuts are ignored in text fields and dialogs.
 
 ## Inspector editing
 
