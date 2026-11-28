@@ -78,6 +78,6 @@ test('edits the label and description, undoes, redoes and exports the edit', asy
   await expect(page.getByTestId('dirty')).toHaveCount(1)
   await expect(page.getByTestId('undo-button')).toBeDisabled()
   await page.getByTestId('export-button').click()
-  expect(await page.getByTestId('export-text').inputValue()).toBe(encode(decode(text)))
+  await expect(page.getByTestId('export-text')).toHaveValue(encode(decode(text)))
   await page.keyboard.press('Escape')
 })

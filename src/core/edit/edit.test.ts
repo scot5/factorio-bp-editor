@@ -197,8 +197,12 @@ describe('rejection', () => {
     const start = book()
     // Slot 1 already has entity_number 1 twice. Renumbering one of the pair is fine,
     // and so is an unrelated edit in the same blueprint.
-    ok(execute(start, emptyHistory(), setNumber, { path: [1], entity: 1, value: 2 }))
-    ok(execute(start, emptyHistory(), setLabel, { path: [1], text: 'Still broken' }))
+    expect(execute(start, emptyHistory(), setNumber, { path: [1], entity: 1, value: 2 }).ok).toBe(
+      true
+    )
+    expect(execute(start, emptyHistory(), setLabel, { path: [1], text: 'Still broken' }).ok).toBe(
+      true
+    )
   })
 
   it('allows removing a book slot next to one with an imported duplicate', () => {
