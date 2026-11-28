@@ -14,6 +14,7 @@ import {
   FACING_TYPES,
   ROLLING_STOCK_TYPES,
   type EntityCategory,
+  type EntityPrototypeInfo,
   type PrototypeLookup
 } from '../prototypes/sizes'
 import type { Blueprint, BlueprintEntity } from './schema'
@@ -56,31 +57,40 @@ export interface BlueprintLayout {
   unknownNames: string[]
 }
 
+/**
+ * Where an entity sits: its occupied box, size and facing. Rolling stock lies
+ * along its `orientation`; the box snaps to the nearest axis.
+ */
+export function entityFootprint(
+  entity: Pick<BlueprintEntity, 'position' | 'direction' | 'orientation'>,
+  info: EntityPrototypeInfo | undefined
+): { box: Box; size: TileSize; direction: Direction; rolling: boolean } {
+  const rolling = info !== undefined && ROLLING_STOCK_TYPES.has(info.type)
+  const direction =
+    rolling && typeof entity.orientation === 'number'
+      ? directionFromOrientation(entity.orientation)
+      : directionOf(entity)
+  const base: TileSize = info ? { width: info.width, height: info.height } : { width: 1, height: 1 }
+  let size = base
+  if (rolling) {
+    if (Math.round(((entity.orientation ?? 0) * 4) % 2) === 1)
+      size = { width: base.height, height: base.width }
+  } else if (isCardinal(direction)) {
+    size = orientedSize(base, direction)
+  }
+  return { box: footprint(entity.position, size), size, direction, rolling }
+}
+
 export function layoutBlueprint(blueprint: Blueprint, lookup: PrototypeLookup): BlueprintLayout {
   const unknown = new Set<string>()
   const entities = (blueprint.entities ?? []).map((entity, index): EntityLayout => {
     const info = lookup(entity.name)
     if (!info) unknown.add(entity.name)
-    const rolling = info !== undefined && ROLLING_STOCK_TYPES.has(info.type)
-    const direction =
-      rolling && typeof entity.orientation === 'number'
-        ? directionFromOrientation(entity.orientation)
-        : directionOf(entity)
-    const base: TileSize = info
-      ? { width: info.width, height: info.height }
-      : { width: 1, height: 1 }
-    // Rolling stock lies along its orientation; snap to the nearest axis for the footprint.
-    const size = rolling
-      ? Math.round(((entity.orientation ?? 0) * 4) % 2) === 1
-        ? { width: base.height, height: base.width }
-        : base
-      : isCardinal(direction)
-        ? orientedSize(base, direction)
-        : base
+    const { box, size, direction, rolling } = entityFootprint(entity, info)
     return {
       index,
       entity,
-      box: footprint(entity.position, size),
+      box,
       size,
       direction,
       directional:

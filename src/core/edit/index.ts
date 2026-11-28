@@ -16,3 +16,18 @@ export {
 } from './history'
 export { newInvariantProblem } from './invariants'
 export { setDescription, setLabel, type SetTextArgs } from './blueprint'
+export {
+  deleteEntities,
+  mirrorEntities,
+  mirrorPivot,
+  moveEntities,
+  rotateEntities,
+  rotationPivot,
+  selectionOnRailGrid,
+  type EntitiesArgs,
+  type MirrorArgs,
+  type MirrorAxis,
+  type MoveArgs,
+  type RotateArgs,
+  type Turn
+} from './entities'

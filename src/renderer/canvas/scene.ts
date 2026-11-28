@@ -288,6 +288,12 @@ export class Scene {
     this.invalidate()
   }
 
+  /** Offsets the selection highlight while the selection is dragged; null puts it back. */
+  setMoveOffset(offset: Position | null): void {
+    this.selectionLayer.position.set(offset?.x ?? 0, offset?.y ?? 0)
+    this.invalidate()
+  }
+
   setHover(index: number | null): void {
     if (index === this.hover) return
     this.hover = index

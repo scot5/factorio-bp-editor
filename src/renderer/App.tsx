@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { isDirty, type History } from '@core/edit'
 import type { Position } from '@core/geometry'
 import { getNode, layoutBlueprint, type Blueprint } from '@core/model'
@@ -20,7 +20,14 @@ import { Inspector } from './panels/Inspector'
 import { useAnalysis } from './store/analysis'
 import { useAssets } from './store/assets'
 import { useDiff } from './store/diff'
-import { useActiveDocument, useDocuments } from './store/documents'
+import { useActiveDocument, useDocuments, type CommandResult } from './store/documents'
+import {
+  deleteSelection,
+  mirrorSelection,
+  moveSelection,
+  moveStep,
+  rotateSelection
+} from './store/selection-actions'
 
 const DIRECTIONS = [
   'N',
@@ -157,6 +164,48 @@ export function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  // A rejected edit or one with warnings shows a toast.
+  const report = (result: CommandResult): void => {
+    if (!result.ok) setToast({ kind: 'error', text: result.message })
+    else if (result.warnings.length) setToast({ kind: 'info', text: result.warnings.join(' ') })
+  }
+  const reportRef = useRef(report)
+  useLayoutEffect(() => {
+    reportRef.current = report
+  })
+
+  // Selection shortcuts (05 § Tools): R / Shift+R rotate, F / G mirror, Delete.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input, textarea, [contenteditable="true"], [role="dialog"]')) return
+      if (event.ctrlKey || event.altKey || event.metaKey) return
+      if (useDocuments.getState().selection.length === 0) return
+      let result: CommandResult
+      switch (event.key.toLowerCase()) {
+        case 'r':
+          result = rotateSelection(event.shiftKey ? 'ccw' : 'cw')
+          break
+        case 'f':
+          result = mirrorSelection('horizontal')
+          break
+        case 'g':
+          result = mirrorSelection('vertical')
+          break
+        case 'delete':
+        case 'backspace':
+          result = deleteSelection()
+          break
+        default:
+          return
+      }
+      event.preventDefault()
+      reportRef.current(result)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
   // Toasts disappear after a while.
   useEffect(() => {
     if (!toast) return
@@ -227,6 +276,8 @@ export function App(): React.JSX.Element {
         >
           Fit
         </button>
+        <div className="mx-1 h-5 w-px bg-edge" />
+        <SelectionTools disabled={!layout || selection.length === 0} onResult={report} />
         <nav className="ml-2 flex min-w-0 flex-1 gap-1 overflow-x-auto" aria-label="Open documents">
           {documents.map((d) => (
             <div
@@ -286,6 +337,8 @@ export function App(): React.JSX.Element {
             wireHighlight={wireHighlight}
             diff={diffOverlay}
             onSelect={select}
+            onMove={(dx, dy) => report(moveSelection(dx, dy))}
+            moveStep={moveStep(blueprint, selection)}
             onHover={setHover}
             onCursor={setCursor}
             onZoom={setScale}
@@ -403,6 +456,50 @@ function UndoRedo({ history }: Readonly<{ history: History | undefined }>): Reac
       >
         Redo
       </button>
+    </>
+  )
+}
+
+function SelectionTools({
+  disabled,
+  onResult
+}: Readonly<{ disabled: boolean; onResult(result: CommandResult): void }>): React.JSX.Element {
+  const tools = [
+    {
+      id: 'rotate',
+      text: '⟳',
+      title: 'Rotate clockwise (R; Shift+R anticlockwise)',
+      run: () => rotateSelection('cw')
+    },
+    {
+      id: 'mirror-h',
+      text: '⇆',
+      title: 'Mirror horizontally (F)',
+      run: () => mirrorSelection('horizontal')
+    },
+    {
+      id: 'mirror-v',
+      text: '⇅',
+      title: 'Mirror vertically (G)',
+      run: () => mirrorSelection('vertical')
+    },
+    { id: 'delete', text: 'Delete', title: 'Delete the selection (Del)', run: deleteSelection }
+  ]
+  return (
+    <>
+      {tools.map((tool) => (
+        <button
+          key={tool.id}
+          className="btn"
+          disabled={disabled}
+          title={tool.title}
+          aria-label={tool.title}
+          data-testid={`tool-${tool.id}`}
+          onClick={() => onResult(tool.run())}
+        >
+          {tool.text}
+        </button>
+      ))}
     </>
   )
 }

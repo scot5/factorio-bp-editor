@@ -122,6 +122,15 @@ Added in M4 plan step 5 for logistics (06 § 3). Checked against the 2.1.25 dump
 - **Pumps:** `EntityStats.pumpingSpeed` copies `pumping_speed` (fluid units per tick; vanilla 20, so 1,200/s).
 - **Research:** the capacity and belt stacking bonuses are technology effects (`inserter-stack-size-bonus`, `bulk-inserter-capacity-bonus`, `belt-stack-size-bonus`), not stored; the user picks levels in the Logistics section.
 
+### Rotate and mirror fields (DB format 12)
+
+Added in M5 plan step 2 for the entity commands (05 § Rotate and mirror). Code: `transformTraits` in `src/core/prototypes/transform.ts`. Checked against the 2.1.25 dump.
+
+- **`EntityProto.rotatable: false`** when rotating never turns the entity: the `not-rotatable` flag (only crash-site wrecks and the thruster in 2.1.25), a type in `NON_ROTATABLE_TYPES` (chests, poles, pipes, walls, lamps, roboports, …; the game decides this per type, and the dump has no flag for it), or a **square** crafting machine with neither `fluid_boxes` nor `vector_to_place_result` (assembling machine 1, the centrifuge, the furnaces, the rocket silo, the captive biter spawner). The 2×3 crusher has neither, but it turns.
+- **`EntityProto.mirroring: true`** when mirroring sets the entity's `mirror` flag: `use_mirroring` for crafting machines (default: whether `vector_to_place_result` is given), inserters and mining drills (default true). In 2.1.25 that is the oil refinery, chemical plant, biochamber, foundry, electromagnetic plant, cryogenic plant, recycler, every mining drill and every inserter.
+- `LuaEntityPrototype.allows_flipping` (whether a blueprint holding the entity may be flipped at all) is runtime-only and not in the dump, so it is not stored.
+- **Without game data,** the type decides: `NON_ROTATABLE_TYPES` stay fixed, and only inserters and mining drills mirror. Crafting machines then turn and never set `mirror`.
+
 ### Typed schemas
 
 `doc-html/prototype-api.json` describes every prototype type and property in machine-readable form. Use it at build time to generate TypeScript types for the parts of the dump the app reads. Do not hand-write them.

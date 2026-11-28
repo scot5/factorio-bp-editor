@@ -9,6 +9,10 @@ export interface EntityPrototypeInfo {
   type: string
   width: number
   height: number
+  /** False when the direction never turns (PrototypeDb format 12+; see `canRotate`). */
+  rotatable?: boolean
+  /** True when mirroring sets the `mirror` flag (`use_mirroring`; format 12+; see `canMirror`). */
+  mirroring?: boolean
 }
 
 export type PrototypeLookup = (name: string) => EntityPrototypeInfo | undefined
