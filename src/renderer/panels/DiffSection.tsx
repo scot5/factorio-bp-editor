@@ -37,10 +37,8 @@ function choicesOf(documents: readonly OpenDocument[], active: string): Choice[]
       .map((node) => {
         const label =
           typeof node.payload['label'] === 'string' ? richTextToPlain(node.payload['label']) : ''
-        const name =
-          node.path.length === 0
-            ? doc.title
-            : `${doc.title} › ${label || `#${node.path.join('.')}`}`
+        const entry = label || '#' + node.path.join('.')
+        const name = node.path.length === 0 ? doc.title : `${doc.title} › ${entry}`
         return {
           key: targetKey(doc.id, node.path),
           target: { docId: doc.id, path: node.path },
@@ -125,7 +123,7 @@ export function DiffSection({
               onChange={(e) => setOverlay(e.target.checked)}
               data-testid="diff-overlay"
             />
-            Show changes on the canvas
+            <span>Show changes on the canvas</span>
           </label>
         )}
         {!comparing && (

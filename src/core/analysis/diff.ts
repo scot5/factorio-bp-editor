@@ -84,6 +84,49 @@ function changedKeys(
 
 const posKey = (x: number, y: number): string => `${x},${y}`
 
+function byName(list: readonly BlueprintEntity[]): Map<string, BlueprintEntity[]> {
+  const map = new Map<string, BlueprintEntity[]>()
+  for (const e of list) {
+    const group = map.get(e.name)
+    if (group) group.push(e)
+    else map.set(e.name, [e])
+  }
+  return map
+}
+
+/** The most frequent shifts between same-name entities, rarest names first, within a budget. */
+function frequentOffsets(
+  before: readonly BlueprintEntity[],
+  after: readonly BlueprintEntity[]
+): Position[] {
+  const a = byName(before)
+  const b = byName(after)
+  const names = [...a.keys()]
+    .filter((n) => b.has(n))
+    .map((n) => ({ n, pairs: a.get(n)!.length * b.get(n)!.length }))
+    .sort((x, y) => x.pairs - y.pairs || x.n.localeCompare(y.n))
+
+  const votes = new Map<string, { offset: Position; votes: number }>()
+  const vote = (p: BlueprintEntity, q: BlueprintEntity): void => {
+    const dx = q.position.x - p.position.x
+    const dy = q.position.y - p.position.y
+    const key = posKey(dx, dy)
+    const entry = votes.get(key)
+    if (entry) entry.votes++
+    else votes.set(key, { offset: { x: dx, y: dy }, votes: 1 })
+  }
+  let budget = OFFSET_PAIR_BUDGET
+  for (const { n, pairs } of names) {
+    if (pairs > budget) break
+    budget -= pairs
+    for (const p of a.get(n)!) for (const q of b.get(n)!) vote(p, q)
+  }
+  return [...votes.values()]
+    .sort((x, y) => y.votes - x.votes)
+    .slice(0, OFFSET_CANDIDATES)
+    .map((v) => v.offset)
+}
+
 /**
  * The shift that lines up the most entities by name and position. Candidates
  * are the most frequent offsets between same-name entities (rarest names
@@ -93,55 +136,23 @@ export function alignmentOffset(
   before: readonly BlueprintEntity[],
   after: readonly BlueprintEntity[]
 ): Position {
-  const byName = (list: readonly BlueprintEntity[]): Map<string, BlueprintEntity[]> => {
-    const map = new Map<string, BlueprintEntity[]>()
-    for (const e of list) {
-      const group = map.get(e.name)
-      if (group) group.push(e)
-      else map.set(e.name, [e])
-    }
-    return map
-  }
-  const a = byName(before)
-  const b = byName(after)
-  const names = [...a.keys()]
-    .filter((n) => b.has(n))
-    .map((n) => ({ n, pairs: a.get(n)!.length * b.get(n)!.length }))
-    .sort((x, y) => x.pairs - y.pairs || x.n.localeCompare(y.n))
-
-  const votes = new Map<string, { offset: Position; votes: number }>()
-  let budget = OFFSET_PAIR_BUDGET
-  for (const { n, pairs } of names) {
-    if (pairs > budget) break
-    budget -= pairs
-    for (const p of a.get(n)!) {
-      for (const q of b.get(n)!) {
-        const dx = q.position.x - p.position.x
-        const dy = q.position.y - p.position.y
-        const key = posKey(dx, dy)
-        const vote = votes.get(key)
-        if (vote) vote.votes++
-        else votes.set(key, { offset: { x: dx, y: dy }, votes: 1 })
-      }
-    }
-  }
-  const candidates = [...votes.values()]
-    .sort((x, y) => y.votes - x.votes)
-    .slice(0, OFFSET_CANDIDATES)
-    .map((v) => v.offset)
-  candidates.unshift({ x: 0, y: 0 })
-
   const targets = new Set(after.map((e) => `${e.name}@${posKey(e.position.x, e.position.y)}`))
-  let best = { offset: { x: 0, y: 0 }, score: -1, size: 0 }
-  for (const offset of candidates) {
-    let score = 0
-    for (const e of before) {
-      if (targets.has(`${e.name}@${posKey(e.position.x + offset.x, e.position.y + offset.y)}`))
-        score++
+  const score = (offset: Position): number =>
+    before.filter((e) =>
+      targets.has(`${e.name}@${posKey(e.position.x + offset.x, e.position.y + offset.y)}`)
+    ).length
+  let best = { offset: { x: 0, y: 0 }, score: score({ x: 0, y: 0 }), size: 0 }
+  for (const offset of frequentOffsets(before, after)) {
+    const candidate = {
+      offset,
+      score: score(offset),
+      size: Math.abs(offset.x) + Math.abs(offset.y)
     }
-    const size = Math.abs(offset.x) + Math.abs(offset.y)
-    if (score > best.score || (score === best.score && size < best.size))
-      best = { offset, score, size }
+    if (
+      candidate.score > best.score ||
+      (candidate.score === best.score && candidate.size < best.size)
+    )
+      best = candidate
   }
   return best.offset
 }
